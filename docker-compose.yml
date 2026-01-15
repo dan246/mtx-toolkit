@@ -1,0 +1,130 @@
+version: '3.8'
+
+# MTX Toolkit - 連接到主機上現有的 MediaMTX (api_mediamtx_secondary)
+# MediaMTX API: http://192.168.53.19:9998 或 http://host.docker.internal:9998
+# MediaMTX RTSP: rtsp://192.168.53.19:8555
+
+services:
+  # MTX Toolkit Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mtx-toolkit-backend
+    ports:
+      - "5002:5000"
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://mtx:mtx_password@postgres:5432/mtx_toolkit
+      - REDIS_URL=redis://redis:6379/0
+      # 連接到主機上現有的 MediaMTX (api_mediamtx_secondary)
+      - MEDIAMTX_API_URL=http://host.docker.internal:9998
+      - MEDIAMTX_RTSP_URL=rtsp://host.docker.internal:8555
+      - RECORDING_BASE_PATH=/recordings
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app
+      - ../MultiCamAPI/recordings:/recordings  # 共用現有的 recordings 目錄
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - mtx-network
+    restart: unless-stopped
+
+  # MTX Toolkit Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mtx-toolkit-frontend
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    networks:
+      - mtx-network
+    restart: unless-stopped
+
+  # PostgreSQL Database (使用不同的 port 避免與現有的 poc_db 衝突)
+  postgres:
+    image: postgres:16-alpine
+    container_name: mtx-toolkit-postgres
+    environment:
+      - POSTGRES_USER=mtx
+      - POSTGRES_PASSWORD=mtx_password
+      - POSTGRES_DB=mtx_toolkit
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "15433:5432"
+    networks:
+      - mtx-network
+    restart: unless-stopped
+
+  # Redis (for Celery and caching) - 使用不同的 port
+  redis:
+    image: redis:7-alpine
+    container_name: mtx-toolkit-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mtx-network
+    restart: unless-stopped
+
+  # Celery Worker (background tasks)
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mtx-toolkit-celery-worker
+    command: celery -A app.celery_app worker --loglevel=info
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://mtx:mtx_password@postgres:5432/mtx_toolkit
+      - REDIS_URL=redis://redis:6379/0
+      - MEDIAMTX_API_URL=http://host.docker.internal:9998
+      - MEDIAMTX_RTSP_URL=rtsp://host.docker.internal:8555
+      - RECORDING_BASE_PATH=/recordings
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app
+      - ../MultiCamAPI/recordings:/recordings
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - mtx-network
+    restart: unless-stopped
+
+  # Celery Beat (scheduled tasks)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mtx-toolkit-celery-beat
+    command: celery -A app.celery_app beat --loglevel=info
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://mtx:mtx_password@postgres:5432/mtx_toolkit
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - mtx-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  mtx-network:
+    driver: bridge

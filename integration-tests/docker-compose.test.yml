@@ -1,0 +1,130 @@
+version: '3.8'
+
+# Integration test environment
+# Usage: docker compose -f docker-compose.test.yml up --abort-on-container-exit
+
+services:
+  # Test runner
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: mtx-test-runner
+    environment:
+      - BACKEND_URL=http://backend:5000
+      - MEDIAMTX_URL=http://mediamtx:9997
+      - RTSP_URL=rtsp://mediamtx:8554
+      - RTMP_URL=rtmp://mediamtx:1935
+    depends_on:
+      backend:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+      test-stream:
+        condition: service_started
+    networks:
+      - test-network
+    volumes:
+      - ./tests:/tests
+      - ./results:/results
+
+  # Backend service
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: mtx-test-backend
+    environment:
+      - FLASK_ENV=testing
+      - DATABASE_URL=sqlite:///test.db
+      - REDIS_URL=redis://redis:6379/0
+      - MEDIAMTX_API_URL=http://mediamtx:9997
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - test-network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: mtx-test-redis
+    networks:
+      - test-network
+
+  # MediaMTX
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: mtx-test-mediamtx
+    ports:
+      - "9997:9997"
+      - "8554:8554"
+      - "1935:1935"
+    networks:
+      - test-network
+
+  # Test stream generator (FFmpeg testsrc)
+  test-stream:
+    image: linuxserver/ffmpeg:latest
+    container_name: mtx-test-stream
+    command: >
+      -re -f lavfi -i testsrc=duration=300:size=1280x720:rate=30
+      -f lavfi -i sine=frequency=1000:duration=300
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -c:a aac
+      -f rtsp rtsp://mediamtx:8554/test
+    depends_on:
+      - mediamtx
+    networks:
+      - test-network
+    restart: on-failure
+
+  # Black screen stream (for detection testing)
+  black-stream:
+    image: linuxserver/ffmpeg:latest
+    container_name: mtx-test-black
+    command: >
+      -re -f lavfi -i color=black:size=1280x720:rate=30:duration=300
+      -c:v libx264 -preset ultrafast
+      -f rtsp rtsp://mediamtx:8554/black
+    depends_on:
+      - mediamtx
+    networks:
+      - test-network
+    restart: on-failure
+
+  # Low FPS stream (for FPS drop testing)
+  lowfps-stream:
+    image: linuxserver/ffmpeg:latest
+    container_name: mtx-test-lowfps
+    command: >
+      -re -f lavfi -i testsrc=duration=300:size=1280x720:rate=5
+      -c:v libx264 -preset ultrafast
+      -f rtsp rtsp://mediamtx:8554/lowfps
+    depends_on:
+      - mediamtx
+    networks:
+      - test-network
+    restart: on-failure
+
+  # Silent audio stream (for silence detection testing)
+  silent-stream:
+    image: linuxserver/ffmpeg:latest
+    container_name: mtx-test-silent
+    command: >
+      -re -f lavfi -i testsrc=duration=300:size=1280x720:rate=30
+      -f lavfi -i anullsrc=r=44100:cl=stereo
+      -c:v libx264 -preset ultrafast
+      -c:a aac
+      -f rtsp rtsp://mediamtx:8554/silent
+    depends_on:
+      - mediamtx
+    networks:
+      - test-network
+    restart: on-failure
+
+networks:
+  test-network:
+    driver: bridge

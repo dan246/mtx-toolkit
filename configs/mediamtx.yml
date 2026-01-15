@@ -1,0 +1,86 @@
+# MediaMTX configuration for MTX Toolkit testing
+# https://github.com/bluenviron/mediamtx
+
+###############################################
+# Global settings
+
+logLevel: info
+logDestinations: [stdout]
+
+# API
+api: yes
+apiAddress: :9997
+
+# Metrics
+metrics: yes
+metricsAddress: :9998
+
+###############################################
+# RTSP settings
+
+rtsp: yes
+protocols: [tcp, udp]
+rtspAddress: :8554
+
+###############################################
+# RTMP settings
+
+rtmp: yes
+rtmpAddress: :1935
+
+###############################################
+# HLS settings
+
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: no
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+
+###############################################
+# WebRTC settings
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcICEServers2: []
+webrtcICEHostNAT1To1IPs: []
+webrtcICEUDPMuxAddress: :8189
+
+###############################################
+# Recording settings
+
+# Recording is handled by MTX Toolkit, not MediaMTX directly
+# record: no
+
+###############################################
+# Path settings
+
+pathDefaults:
+  # Sources
+  source: publisher
+  sourceOnDemand: no
+  sourceOnDemandStartTimeout: 10s
+  sourceOnDemandCloseAfter: 10s
+
+  # Playback
+  playbackStartTimeout: 10s
+
+  # Logging
+  runOnReady:
+  runOnReadyRestart: no
+  runOnNotReady:
+
+paths:
+  # Test paths
+  test:
+    # Accepts any publisher
+
+  # Example camera paths (commented out)
+  # cam1:
+  #   source: rtsp://user:pass@192.168.1.100:554/stream
+
+  # All other paths (wildcard)
+  ~^.*$:
