@@ -27,6 +27,11 @@ ENV/
 instance/
 .webassets-cache
 
+# Celery
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat.pid
+
 # Node
 node_modules/
 npm-debug.log*
