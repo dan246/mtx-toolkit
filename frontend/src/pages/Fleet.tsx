@@ -279,17 +279,21 @@ export default function Fleet() {
                 </div>
 
                 {/* Stats */}
-                <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="grid grid-cols-4 gap-3 mb-4">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-gray-900">{node.stream_count}</p>
+                    <p className="text-xl font-bold text-gray-900">{node.stream_count}</p>
                     <p className="text-xs text-gray-500">{t.fleet.streams}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-green-600">{node.healthy_streams}</p>
+                    <p className="text-xl font-bold text-green-600">{node.healthy_streams}</p>
                     <p className="text-xs text-gray-500">{t.fleet.healthy}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-red-600">{node.unhealthy_streams}</p>
+                    <p className="text-xl font-bold text-yellow-600">{node.degraded_streams || 0}</p>
+                    <p className="text-xs text-gray-500">{t.fleet.degraded}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xl font-bold text-red-600">{node.unhealthy_streams}</p>
                     <p className="text-xs text-gray-500">{t.fleet.unhealthy}</p>
                   </div>
                 </div>

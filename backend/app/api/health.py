@@ -61,3 +61,24 @@ def probe_url():
 
     result = checker.probe_url(url, protocol)
     return jsonify(result)
+
+
+@health_bp.route('/quick-check', methods=['POST'])
+def quick_check_all():
+    """
+    Fast health check using MediaMTX API.
+    Can check 1000+ streams in seconds.
+    """
+    from app.services.health_checker import HealthChecker
+    checker = HealthChecker()
+    result = checker.quick_check_all_nodes()
+    return jsonify(result)
+
+
+@health_bp.route('/quick-check/<int:node_id>', methods=['POST'])
+def quick_check_node(node_id: int):
+    """Fast health check for a specific node."""
+    from app.services.health_checker import HealthChecker
+    checker = HealthChecker()
+    result = checker.quick_check_node(node_id)
+    return jsonify(result)

@@ -7,43 +7,45 @@ from app.models import Stream, MediaMTXNode, Recording, StreamStatus
 from datetime import datetime, timedelta
 
 
-@celery_app.task(bind=True)
-def check_all_streams_health(self):
-    """Check health of all streams."""
+@celery_app.task(bind=True, soft_time_limit=60, time_limit=90)
+def quick_check_all_nodes(self):
+    """
+    Fast health check using MediaMTX API.
+    Can check 1000+ streams in seconds.
+    """
     app = create_app()
     with app.app_context():
         from app.services.health_checker import HealthChecker
-        from app.services.auto_remediation import AutoRemediation
-
         checker = HealthChecker()
-        remediation = AutoRemediation()
+        return checker.quick_check_all_nodes()
 
+
+@celery_app.task(bind=True, soft_time_limit=600, time_limit=660)
+def check_all_streams_health(self):
+    """Check health of all streams using parallel sub-tasks."""
+    from celery import group
+
+    app = create_app()
+    with app.app_context():
+        # Get streams that need checking
         streams = Stream.query.filter_by(status=StreamStatus.UNKNOWN.value).limit(10).all()
         streams += Stream.query.filter(
             Stream.last_check < datetime.utcnow() - timedelta(seconds=30)
         ).limit(20).all()
 
-        results = []
-        for stream in streams:
-            try:
-                result = checker.probe_stream(stream.id)
-                results.append({
-                    'stream_id': stream.id,
-                    'status': result.get('status'),
-                    'success': True
-                })
+        if not streams:
+            return {'checked': 0, 'results': []}
 
-                # Auto-remediate if needed
-                if stream.status == StreamStatus.UNHEALTHY.value:
-                    if remediation.should_auto_remediate(stream):
-                        remediation.remediate_stream(stream)
+        # Dispatch parallel probe tasks
+        stream_ids = [s.id for s in streams]
+        job = group(probe_stream_task.s(sid) for sid in stream_ids)
+        result = job.apply_async()
 
-            except Exception as e:
-                results.append({
-                    'stream_id': stream.id,
-                    'error': str(e),
-                    'success': False
-                })
+        # Wait for results with timeout
+        try:
+            results = result.get(timeout=300)
+        except Exception as e:
+            return {'checked': len(stream_ids), 'error': str(e), 'partial': True}
 
         return {'checked': len(results), 'results': results}
 
@@ -99,15 +101,25 @@ def archive_old_recordings(self):
         return {'archived': archived, 'total_checked': len(recordings)}
 
 
-@celery_app.task(bind=True)
+@celery_app.task(bind=True, soft_time_limit=30, time_limit=45)
 def probe_stream_task(self, stream_id: int):
     """Probe a specific stream (async task)."""
     app = create_app()
     with app.app_context():
         from app.services.health_checker import HealthChecker
+        from app.services.auto_remediation import AutoRemediation
 
         checker = HealthChecker()
-        return checker.probe_stream(stream_id)
+        result = checker.probe_stream(stream_id)
+
+        # Auto-remediate if unhealthy
+        stream = Stream.query.get(stream_id)
+        if stream and stream.status == StreamStatus.UNHEALTHY.value:
+            remediation = AutoRemediation()
+            if remediation.should_auto_remediate(stream):
+                remediation.remediate_stream(stream)
+
+        return result
 
 
 @celery_app.task(bind=True)

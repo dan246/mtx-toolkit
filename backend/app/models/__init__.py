@@ -34,6 +34,7 @@ class MediaMTXNode(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False, unique=True)
     api_url = db.Column(db.String(512), nullable=False)
+    rtsp_url = db.Column(db.String(512))  # RTSP base URL for health checks
     environment = db.Column(db.String(50), default='production')  # dev/stage/prod
     is_active = db.Column(db.Boolean, default=True)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)

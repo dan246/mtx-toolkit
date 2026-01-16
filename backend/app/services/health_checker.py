@@ -53,6 +53,118 @@ class HealthChecker:
     def __init__(self):
         self.timeout = current_app.config.get('HEALTH_CHECK_TIMEOUT', 10) if current_app else 10
 
+    def quick_check_node(self, node_id: int) -> Dict[str, Any]:
+        """
+        Lightweight health check using MediaMTX API.
+        Much faster than ffprobe - can check hundreds of streams per second.
+
+        Uses 'ready' field which indicates if stream is actually playable.
+        This handles cases where source exists but RTSP is disconnected.
+        """
+        node = MediaMTXNode.query.get(node_id)
+        if not node:
+            return {"error": "Node not found"}
+
+        try:
+            # Query MediaMTX API for all paths
+            response = httpx.get(f"{node.api_url}/v3/paths/list", timeout=5)
+            if response.status_code != 200:
+                return {"error": f"API returned {response.status_code}"}
+
+            data = response.json()
+            paths_info = {item['name']: item for item in data.get('items', [])}
+
+            # Update all streams for this node
+            streams = Stream.query.filter_by(node_id=node_id).all()
+            updated = 0
+            healthy = 0
+            degraded = 0
+            unhealthy = 0
+
+            for stream in streams:
+                path_data = paths_info.get(stream.path)
+                old_status = stream.status
+
+                if path_data:
+                    # Use 'ready' field - this is true only when stream is actually playable
+                    is_ready = path_data.get('ready', False)
+                    has_source = path_data.get('source') is not None
+                    source_type = path_data.get('source', {}).get('type', '') if path_data.get('source') else ''
+                    bytes_received = path_data.get('bytesReceived', 0)
+
+                    if is_ready:
+                        # Stream is ready and playable
+                        stream.status = StreamStatus.HEALTHY.value
+                        healthy += 1
+                    elif has_source and not is_ready:
+                        # Has source but not ready - might be connecting or disconnected
+                        stream.status = StreamStatus.DEGRADED.value
+                        degraded += 1
+                    elif not has_source and source_type == '':
+                        # On-demand path (監聽推流) - no source until someone requests
+                        # Check if it's configured as on-demand by looking at confName
+                        if path_data.get('confName'):
+                            # Has config but no active source - could be on-demand
+                            stream.status = StreamStatus.DEGRADED.value
+                            degraded += 1
+                        else:
+                            stream.status = StreamStatus.UNHEALTHY.value
+                            unhealthy += 1
+                    else:
+                        stream.status = StreamStatus.UNHEALTHY.value
+                        unhealthy += 1
+                else:
+                    # Path not found in MediaMTX at all
+                    stream.status = StreamStatus.UNHEALTHY.value
+                    unhealthy += 1
+
+                stream.last_check = datetime.utcnow()
+                updated += 1
+
+                # Create event if status changed
+                if old_status != stream.status:
+                    self._create_status_change_event(stream, old_status, {'quick_check': True})
+
+            # Update node last_seen
+            node.last_seen = datetime.utcnow()
+            db.session.commit()
+
+            return {
+                "success": True,
+                "node_id": node_id,
+                "updated": updated,
+                "healthy": healthy,
+                "degraded": degraded,
+                "unhealthy": unhealthy
+            }
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def quick_check_all_nodes(self) -> Dict[str, Any]:
+        """Quick check all active nodes using API."""
+        nodes = MediaMTXNode.query.filter_by(is_active=True).all()
+        results = []
+        total_healthy = 0
+        total_degraded = 0
+        total_unhealthy = 0
+
+        for node in nodes:
+            result = self.quick_check_node(node.id)
+            results.append(result)
+            if result.get('success'):
+                total_healthy += result.get('healthy', 0)
+                total_degraded += result.get('degraded', 0)
+                total_unhealthy += result.get('unhealthy', 0)
+
+        return {
+            "nodes_checked": len(nodes),
+            "total_healthy": total_healthy,
+            "total_degraded": total_degraded,
+            "total_unhealthy": total_unhealthy,
+            "results": results
+        }
+
     def check_redis(self) -> str:
         """Check Redis connection."""
         try:
@@ -101,8 +213,11 @@ class HealthChecker:
             '-show_error',
             '-analyzeduration', '5000000',  # 5 seconds
             '-probesize', '5000000',
-            url
         ]
+        # Use TCP transport for RTSP to avoid UDP issues
+        if url.startswith('rtsp://'):
+            cmd.extend(['-rtsp_transport', 'tcp'])
+        cmd.append(url)
 
         result = subprocess.run(
             cmd,
@@ -207,8 +322,8 @@ class HealthChecker:
         if stream.source_url:
             url = stream.source_url
         else:
-            # Use configured RTSP URL or construct from node
-            rtsp_base = current_app.config.get('MEDIAMTX_RTSP_URL', 'rtsp://localhost:8555')
+            # Use node's RTSP URL, fall back to global config
+            rtsp_base = node.rtsp_url if node and node.rtsp_url else current_app.config.get('MEDIAMTX_RTSP_URL', 'rtsp://localhost:8555')
             url = f"{rtsp_base}/{stream.path}"
 
         # Run probe

@@ -29,11 +29,13 @@ def list_nodes():
             "id": n.id,
             "name": n.name,
             "api_url": n.api_url,
+            "rtsp_url": n.rtsp_url,
             "environment": n.environment,
             "is_active": n.is_active,
             "last_seen": n.last_seen.isoformat() if n.last_seen else None,
             "stream_count": n.streams.count(),
             "healthy_streams": n.streams.filter_by(status='healthy').count(),
+            "degraded_streams": n.streams.filter_by(status='degraded').count(),
             "unhealthy_streams": n.streams.filter_by(status='unhealthy').count()
         } for n in nodes],
         "total": len(nodes)
@@ -49,6 +51,7 @@ def get_node(node_id: int):
         "id": node.id,
         "name": node.name,
         "api_url": node.api_url,
+        "rtsp_url": node.rtsp_url,
         "environment": node.environment,
         "is_active": node.is_active,
         "last_seen": node.last_seen.isoformat() if node.last_seen else None,
@@ -73,6 +76,7 @@ def create_node():
     node = MediaMTXNode(
         name=data['name'],
         api_url=data['api_url'],
+        rtsp_url=data.get('rtsp_url'),
         environment=data.get('environment', 'production'),
         is_active=data.get('is_active', True),
         metadata_json=data.get('metadata')
@@ -90,7 +94,7 @@ def update_node(node_id: int):
     node = MediaMTXNode.query.get_or_404(node_id)
     data = request.get_json()
 
-    for field in ['name', 'api_url', 'environment', 'is_active', 'metadata_json']:
+    for field in ['name', 'api_url', 'rtsp_url', 'environment', 'is_active', 'metadata_json']:
         if field in data:
             setattr(node, field, data[field])
 

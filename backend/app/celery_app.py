@@ -28,10 +28,15 @@ celery_app.conf.update(
 
 # Scheduled tasks (Celery Beat)
 celery_app.conf.beat_schedule = {
-    # Health check all streams every 30 seconds
-    'health-check-all-streams': {
+    # Quick health check every 10 seconds (API-based, very fast)
+    'quick-health-check': {
+        'task': 'app.tasks.quick_check_all_nodes',
+        'schedule': 10.0,
+    },
+    # Deep health check (ffprobe) every 5 minutes for detailed diagnostics
+    'deep-health-check': {
         'task': 'app.tasks.check_all_streams_health',
-        'schedule': 30.0,
+        'schedule': 300.0,
     },
     # Sync all fleet nodes every 5 minutes
     'sync-fleet-nodes': {
