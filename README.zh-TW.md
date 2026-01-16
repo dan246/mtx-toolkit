@@ -1,7 +1,7 @@
 <h1 align="center">MTX Toolkit</h1>
 
 <p align="center">
-  <strong>Enterprise-grade Stream Reliability Platform for MediaMTX</strong>
+  <strong>企業級 MediaMTX 串流可靠性管理平台</strong>
 </p>
 
 <p align="center">
@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> •
-  <a href="#screenshots">Screenshots</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#api-reference">API</a>
+  <a href="#功能特色">功能</a> •
+  <a href="#截圖">截圖</a> •
+  <a href="#快速開始">快速開始</a> •
+  <a href="#架構">架構</a> •
+  <a href="#api-參考">API</a>
 </p>
 
 <p align="center">
@@ -25,94 +25,94 @@
 
 ---
 
-## Overview
+## 概述
 
-MTX Toolkit is an enterprise-grade stream reliability management platform designed for MediaMTX. It provides real-time monitoring, auto-remediation, configuration management, and multi-node fleet management. Supports monitoring **thousands of cameras** simultaneously with full health checks completed in 10 seconds.
+MTX Toolkit 是一個專為 MediaMTX 設計的企業級串流可靠性管理平台，提供即時監控、自動修復、配置管理與多節點管理功能。支援同時監控**上千台攝影機**，並在 10 秒內完成全面健康檢查。
 
-## Features
+## 功能特色
 
-| Feature | Description |
-|---------|-------------|
-| **Dual-layer Health Check** | Quick check (API, every 10s) + Deep check (ffprobe, every 5min) |
-| **Real-time Monitoring** | Supports 1000+ streams with millisecond-level status updates |
-| **Auto Remediation** | Smart tiered retry with exponential backoff + jitter |
-| **Fleet Management** | Unified multi-node management across environments (dev/staging/prod) |
-| **Config-as-Code** | Terraform-style plan/apply workflow |
-| **Recording Management** | Event recording, disk watermark protection, auto-cleanup & archiving |
-| **i18n** | Traditional Chinese / English |
+| 功能 | 說明 |
+|------|------|
+| **雙層健康檢查** | 快速檢查（API，每 10 秒）+ 深度檢查（ffprobe，每 5 分鐘） |
+| **即時監控** | 支援 1000+ 串流，毫秒級狀態更新 |
+| **自動修復** | 智慧分級重試，指數退避 + 抖動演算法 |
+| **Fleet 管理** | 多節點統一管理，跨環境部署（dev/staging/prod） |
+| **Config-as-Code** | Terraform 風格的 plan/apply 工作流程 |
+| **錄影管理** | 事件錄影、磁碟水位保護、自動清理與歸檔 |
+| **多語系** | 繁體中文 / English |
 
-## Screenshots
+## 截圖
 
-### Dashboard
-Real-time monitoring of all stream status, health distribution, active alerts, and recent events.
+### 儀表板
+即時監控所有串流狀態、健康分佈、活動告警與最近事件。
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-### Fleet Management
-Unified multi-node management showing stream health status (Healthy/Degraded/Unhealthy) for each node.
+### 節點管理
+多節點統一管理，顯示每個節點的串流健康狀況（健康/降級/不健康）。
 
 ![Fleet Management](docs/screenshots/fleet.png)
 
-### Streams
-Complete stream CRUD operations with status filtering, FPS/bitrate monitoring, manual probe & remediation.
+### 串流管理
+完整的串流 CRUD 操作，支援狀態篩選、FPS/位元率監控、手動探測與修復。
 
 ![Streams](docs/screenshots/streams.png)
 
-### Recordings
-Recording file management with online playback, download, disk usage monitoring, and auto-cleanup.
+### 錄影管理
+錄影檔案管理，支援線上播放、下載、磁碟使用量監控與自動清理。
 
 ![Recordings](docs/screenshots/recordings.png)
 
-## Health Check System
+## 健康檢查系統
 
-### Stream Status
+### 串流狀態
 
-| Status | Color | Description |
-|--------|:-----:|-------------|
-| **Healthy** | 🟢 | Stream is normal and playable |
-| **Degraded** | 🟡 | Connecting, on-demand standby, or temporarily unavailable |
-| **Unhealthy** | 🔴 | Path doesn't exist or completely offline |
-| **Unknown** | ⚪ | Not yet checked |
+| 狀態 | 顏色 | 說明 |
+|------|:----:|------|
+| **Healthy** | 🟢 | 串流正常，可播放 |
+| **Degraded** | 🟡 | 連線中、監聽待機、或暫時不可用 |
+| **Unhealthy** | 🔴 | 路徑不存在或完全離線 |
+| **Unknown** | ⚪ | 尚未檢查 |
 
-### Dual-layer Architecture
+### 雙層檢查架構
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   Quick Check (every 10s)                    │
+│                     Quick Check (每 10 秒)                   │
 │  ┌─────────┐    ┌─────────────┐    ┌──────────────────┐    │
 │  │ MediaMTX │───▶│  API Query  │───▶│ ready: true/false │    │
-│  │   API    │    │ /v3/paths   │    │   Status Update   │    │
+│  │   API    │    │ /v3/paths   │    │   狀態更新        │    │
 │  └─────────┘    └─────────────┘    └──────────────────┘    │
 │                        ⬇ ~0.2s / 200 streams                │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
-│                    Deep Check (every 5min)                   │
+│                     Deep Check (每 5 分鐘)                   │
 │  ┌─────────┐    ┌─────────────┐    ┌──────────────────┐    │
-│  │  RTSP   │───▶│   ffprobe   │───▶│ FPS, Resolution,  │    │
-│  │ Stream  │    │  TCP Mode   │    │ Codec Diagnostics │    │
+│  │  RTSP   │───▶│   ffprobe   │───▶│ FPS, 解析度, 編碼 │    │
+│  │ Stream  │    │  TCP Mode   │    │   詳細診斷        │    │
 │  └─────────┘    └─────────────┘    └──────────────────┘    │
 │                        ⬇ ~10s / stream                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Monitoring Capacity
+### 監控容量
 
-| Stream Count | Quick Check Time |
-|:------------:|:----------------:|
-| 200 | ~0.2s |
-| 1,000 | ~1s |
-| 5,000 | ~5s |
+| 串流數量 | 快速檢查時間 |
+|:-------:|:-----------:|
+| 200 | ~0.2 秒 |
+| 1,000 | ~1 秒 |
+| 5,000 | ~5 秒 |
 
-## Quick Start
+## 快速開始
 
-### Requirements
+### 系統需求
 
 - Docker & Docker Compose
-- Running MediaMTX instance
+- 運行中的 MediaMTX 實例
 - 2GB+ RAM
 
-### 1. Start Services
+### 1. 啟動服務
 
 ```bash
 git clone <repo-url> mtx-toolkit
@@ -120,16 +120,16 @@ cd mtx-toolkit
 docker compose up -d
 ```
 
-### 2. Access Interface
+### 2. 存取介面
 
-| Service | URL |
-|---------|-----|
-| **Frontend UI** | http://localhost:3001 |
-| **Backend API** | http://localhost:5002 |
+| 服務 | 網址 |
+|------|------|
+| **前端 UI** | http://localhost:3001 |
+| **後端 API** | http://localhost:5002 |
 
-### 3. Add Node
+### 3. 新增節點
 
-Add your MediaMTX node via UI or API:
+透過 UI 或 API 新增你的 MediaMTX 節點：
 
 ```bash
 curl -X POST http://localhost:5002/api/fleet/nodes \
@@ -142,13 +142,13 @@ curl -X POST http://localhost:5002/api/fleet/nodes \
   }'
 ```
 
-### 4. Sync Streams
+### 4. 同步串流
 
 ```bash
 curl -X POST http://localhost:5002/api/fleet/sync-all
 ```
 
-## Architecture
+## 架構
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -178,74 +178,74 @@ curl -X POST http://localhost:5002/api/fleet/sync-all
 └────────────────────────────────────────────────────────────────┘
 ```
 
-## API Reference
+## API 參考
 
-### Health Check
+### 健康檢查
 
 ```bash
-# Quick check all nodes (milliseconds)
+# 快速檢查所有節點（毫秒級）
 POST /api/health/quick-check
 
-# Quick check single node
+# 快速檢查單一節點
 POST /api/health/quick-check/{node_id}
 
-# Deep probe stream (ffprobe)
+# 深度探測串流（ffprobe）
 POST /api/health/streams/{stream_id}/probe
 ```
 
-### Node Management
+### 節點管理
 
 ```bash
-# List nodes
+# 列出節點
 GET /api/fleet/nodes
 
-# Add node
+# 新增節點
 POST /api/fleet/nodes
 
-# Sync node streams
+# 同步節點串流
 POST /api/fleet/nodes/{node_id}/sync
 
-# Sync all nodes
+# 同步所有節點
 POST /api/fleet/sync-all
 ```
 
-### Stream Management
+### 串流管理
 
 ```bash
-# List streams
+# 列出串流
 GET /api/streams
 
-# Remediate stream
+# 修復串流
 POST /api/streams/{stream_id}/remediate
 ```
 
-### Configuration Management
+### 配置管理
 
 ```bash
-# Plan config changes
+# Plan 配置變更
 POST /api/config/plan
 
-# Apply config
+# Apply 配置
 POST /api/config/apply
 
-# Rollback config
+# 回滾配置
 POST /api/config/rollback/{snapshot_id}
 ```
 
-## Configuration
+## 設定
 
-### Environment Variables
+### 環境變數
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MEDIAMTX_API_URL` | `http://localhost:9998` | MediaMTX API address |
-| `MEDIAMTX_RTSP_URL` | `rtsp://localhost:8554` | MediaMTX RTSP address |
-| `DATABASE_URL` | `postgresql://...` | PostgreSQL connection string |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
+| 變數 | 預設值 | 說明 |
+|------|--------|------|
+| `MEDIAMTX_API_URL` | `http://localhost:9998` | MediaMTX API 位址 |
+| `MEDIAMTX_RTSP_URL` | `rtsp://localhost:8554` | MediaMTX RTSP 位址 |
+| `DATABASE_URL` | `postgresql://...` | PostgreSQL 連線字串 |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis 連線字串 |
 
 ### Docker Compose
 
-Edit `docker-compose.yml` to modify connection settings:
+編輯 `docker-compose.yml` 修改連線設定：
 
 ```yaml
 environment:
@@ -253,71 +253,71 @@ environment:
   - MEDIAMTX_RTSP_URL=rtsp://host.docker.internal:8554
 ```
 
-## Service Ports
+## 服務埠號
 
-| Service | Port |
-|---------|:----:|
+| 服務 | 埠號 |
+|------|:----:|
 | Frontend | 3001 |
 | Backend API | 5002 |
 | PostgreSQL | 15433 |
 | Redis | 6380 |
 
-## Common Commands
+## 常用指令
 
 ```bash
-# Start services
+# 啟動服務
 docker compose up -d
 
-# View logs
+# 查看日誌
 docker compose logs -f backend
 
-# Rebuild frontend
+# 重建前端
 docker compose build frontend && docker compose up -d frontend
 
-# Rebuild backend
+# 重建後端
 docker compose build backend && docker compose up -d backend celery-worker celery-beat
 
-# Stop services
+# 停止服務
 docker compose down
 
-# Full cleanup (including database)
+# 完全清除（含資料庫）
 docker compose down -v
 ```
 
-## Troubleshooting
+## 疑難排解
 
-### All Streams Show Unhealthy
+### 串流全部顯示不健康
 
-Verify the node's RTSP URL is correct:
+確認節點的 RTSP URL 設定正確：
 
 ```bash
-# Check node settings
+# 檢查節點設定
 curl http://localhost:5002/api/fleet/nodes | jq '.nodes[] | {name, rtsp_url}'
 
-# Update RTSP URL
+# 更新 RTSP URL
 curl -X PUT http://localhost:5002/api/fleet/nodes/1 \
   -H "Content-Type: application/json" \
   -d '{"rtsp_url": "rtsp://your-mediamtx:8554"}'
 ```
 
-### Health Check Timeout
+### 健康檢查超時
 
-Celery tasks are optimized for parallel execution. If issues persist:
+Celery 任務已優化為並行執行，如仍有問題：
 
 ```bash
-# Restart Celery
+# 重啟 Celery
 docker compose restart celery-worker celery-beat
 ```
 
-### Frontend Shows Old Version
+### 前端顯示舊版本
 
 ```bash
-# Rebuild and restart frontend
+# 重建並重啟前端
 docker compose build frontend && docker compose up -d frontend
 
-# Clear browser cache (Ctrl+Shift+R)
+# 清除瀏覽器快取 (Ctrl+Shift+R)
 ```
 
-## License
+## 授權
 
 MIT License
