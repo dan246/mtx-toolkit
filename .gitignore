@@ -83,10 +83,10 @@ coverage.xml
 
 # Recordings (large files)
 recordings/
-*.mp4
-*.mkv
-*.ts
-*.flv
+recordings/*.mp4
+recordings/*.mkv
+recordings/*.ts
+recordings/*.flv
 
 # Secrets
 secrets/
