@@ -1,0 +1,95 @@
+version: '3.8'
+
+# Docker Compose for running tests in isolated environment
+# Usage: docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+
+services:
+  test-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    container_name: mtx-test-backend
+    environment:
+      FLASK_ENV: testing
+      TESTING: "true"
+      DATABASE_URL: "sqlite:///:memory:"
+      REDIS_URL: "redis://test-redis:6379/0"
+      MEDIAMTX_API_URL: "http://localhost:9998"
+      MEDIAMTX_RTSP_URL: "rtsp://localhost:8555"
+      RECORDING_BASE_PATH: "/tmp/test_recordings"
+      HEALTH_CHECK_TIMEOUT: "5"
+      RETRY_MAX_ATTEMPTS: "3"
+      RETRY_BASE_DELAY: "0.1"
+      RETRY_MAX_DELAY: "1.0"
+    volumes:
+      - ./backend:/app
+      - test-coverage:/app/coverage_html
+    depends_on:
+      - test-redis
+    networks:
+      - test-network
+    command: >
+      pytest
+      --cov=app
+      --cov-report=term-missing
+      --cov-report=html:/app/coverage_html
+      --cov-report=xml:/app/coverage.xml
+      --cov-fail-under=80
+      -v
+      --tb=short
+
+  test-redis:
+    image: redis:7-alpine
+    container_name: mtx-test-redis
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  test-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: build
+    container_name: mtx-test-frontend
+    environment:
+      NODE_ENV: test
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - test-network
+    command: npm run test -- --coverage --watchAll=false
+    profiles:
+      - frontend
+
+  lint-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    container_name: mtx-lint-backend
+    volumes:
+      - ./backend:/app
+    networks:
+      - test-network
+    command: >
+      sh -c "
+        echo '=== Running Black ===' &&
+        black --check --diff app tests &&
+        echo '=== Running isort ===' &&
+        isort --check-only --diff app tests &&
+        echo '=== Running Flake8 ===' &&
+        flake8 app tests
+      "
+    profiles:
+      - lint
+
+volumes:
+  test-coverage:
+
+networks:
+  test-network:
+    driver: bridge
