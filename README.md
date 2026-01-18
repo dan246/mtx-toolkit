@@ -39,7 +39,7 @@ MTX Toolkit is an enterprise-grade stream reliability management platform design
 | **Auto Remediation** | Smart tiered retry with exponential backoff + jitter |
 | **Fleet Management** | Unified multi-node management across environments (dev/staging/prod) |
 | **Config-as-Code** | Terraform-style plan/apply workflow |
-| **Recording Management** | Event recording, disk watermark protection, auto-cleanup & archiving |
+| **Recording Management** | Directory scanning, online playback, search & pagination, auto-cleanup & archiving |
 | **i18n** | Traditional Chinese / English |
 
 ## Screenshots
@@ -65,7 +65,7 @@ Complete stream CRUD operations with status filtering, FPS/bitrate monitoring, m
 ![Streams](docs/screenshots/streams.png)
 
 ### Recordings
-Recording file management with online playback, download, disk usage monitoring, and auto-cleanup.
+Recording file management with directory scanning, online playback (TS→MP4 transcode), search across all pages, pagination, disk usage monitoring, and auto-cleanup.
 
 ![Recordings](docs/screenshots/recordings.png)
 
@@ -225,6 +225,26 @@ GET /api/streams
 
 # Remediate stream
 POST /api/streams/{stream_id}/remediate
+```
+
+### Recording Management
+
+```bash
+# List recordings (with search & pagination)
+GET /api/recordings?search=camera1&page=1&per_page=20
+
+# Scan local recording directory
+POST /api/recordings/scan
+# Request: { "node_id": 1, "force_rescan": false }
+
+# Stream recording (with transcode for browser playback)
+GET /api/recordings/{id}/stream
+
+# Download recording
+GET /api/recordings/{id}/download
+
+# Trigger cleanup
+POST /api/recordings/retention/cleanup
 ```
 
 ### Configuration Management

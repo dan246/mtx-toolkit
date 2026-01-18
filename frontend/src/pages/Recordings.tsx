@@ -11,19 +11,26 @@ import {
   AlertTriangle,
   RefreshCw,
   Loader2,
+  FolderSearch,
+  CheckCircle,
+  XCircle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import Card from '../components/Card'
 import StatCard from '../components/StatCard'
 import Modal from '../components/Modal'
-import { recordingsApi } from '../services/api'
+import { recordingsApi, fleetApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
-import type { Recording } from '../types'
+import type { Recording, MediaMTXNode } from '../types'
 
 export default function Recordings() {
   const { t } = useLanguage()
   const queryClient = useQueryClient()
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [segmentType, setSegmentType] = useState('')
+  const [page, setPage] = useState(1)
   const [archivingId, setArchivingId] = useState<number | null>(null)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
 
@@ -33,9 +40,23 @@ export default function Recordings() {
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null)
   const [loadingPlayback, setLoadingPlayback] = useState(false)
 
+  // Scan modal state
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false)
+  const [selectedNodeId, setSelectedNodeId] = useState<number | undefined>(undefined)
+  const [forceRescan, setForceRescan] = useState(false)
+  const [scanResult, setScanResult] = useState<{
+    success: boolean
+    stats: { scanned: number; added: number; skipped: number; errors: number }
+  } | null>(null)
+
   const { data: recordings, isLoading } = useQuery({
-    queryKey: ['recordings', segmentType],
-    queryFn: () => recordingsApi.list({ segment_type: segmentType || undefined }),
+    queryKey: ['recordings', segmentType, search, page],
+    queryFn: () => recordingsApi.list({
+      segment_type: segmentType || undefined,
+      search: search || undefined,
+      page,
+      per_page: 20,
+    }),
     refetchInterval: 30000,
   })
 
@@ -43,6 +64,11 @@ export default function Recordings() {
     queryKey: ['retention-status'],
     queryFn: recordingsApi.getRetentionStatus,
     refetchInterval: 60000,
+  })
+
+  const { data: nodesData } = useQuery({
+    queryKey: ['nodes'],
+    queryFn: () => fleetApi.listNodes(),
   })
 
   const archiveMutation = useMutation({
@@ -74,10 +100,34 @@ export default function Recordings() {
     },
   })
 
-  const filteredRecordings = recordings?.recordings?.filter((rec: Recording) =>
-    rec.stream_path?.toLowerCase().includes(search.toLowerCase()) ||
-    rec.file_path.toLowerCase().includes(search.toLowerCase())
-  ) || []
+  const scanMutation = useMutation({
+    mutationFn: (params: { node_id?: number; force_rescan?: boolean }) =>
+      recordingsApi.scan(params),
+    onSuccess: (data) => {
+      setScanResult(data)
+      queryClient.invalidateQueries({ queryKey: ['recordings'] })
+      queryClient.invalidateQueries({ queryKey: ['retention-status'] })
+    },
+    onError: (error) => {
+      alert(`${t.recordings.scanFailed}: ${error}`)
+    },
+  })
+
+  const handleSearch = () => {
+    setSearch(searchInput)
+    setPage(1)
+  }
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch()
+    }
+  }
+
+  const handleSegmentTypeChange = (newType: string) => {
+    setSegmentType(newType)
+    setPage(1)
+  }
 
   const formatSize = (bytes: number | null) => {
     if (!bytes) return '-'
@@ -102,7 +152,7 @@ export default function Recordings() {
 
     try {
       const data = await recordingsApi.getPlaybackUrl(recording.id)
-      setPlaybackUrl(data.url || `/api/recordings/playback/${recording.id}/stream`)
+      setPlaybackUrl(data.url || `/api/recordings/${recording.id}/stream`)
     } catch (error) {
       alert(`無法取得播放連結: ${error}`)
       setIsPlayerOpen(false)
@@ -140,6 +190,26 @@ export default function Recordings() {
     setPlaybackUrl(null)
   }
 
+  const handleOpenScanModal = () => {
+    setScanResult(null)
+    setSelectedNodeId(undefined)
+    setForceRescan(false)
+    setIsScanModalOpen(true)
+  }
+
+  const handleStartScan = () => {
+    setScanResult(null)
+    scanMutation.mutate({
+      node_id: selectedNodeId,
+      force_rescan: forceRescan,
+    })
+  }
+
+  const handleCloseScanModal = () => {
+    setIsScanModalOpen(false)
+    setScanResult(null)
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -148,18 +218,27 @@ export default function Recordings() {
           <h1 className="text-2xl font-bold text-gray-900">{t.recordings.title}</h1>
           <p className="text-gray-500 mt-1">{t.recordings.subtitle}</p>
         </div>
-        <button
-          onClick={() => cleanupMutation.mutate()}
-          disabled={cleanupMutation.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-        >
-          {cleanupMutation.isPending ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Trash2 className="w-4 h-4" />
-          )}
-          {t.recordings.runCleanup}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleOpenScanModal}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          >
+            <FolderSearch className="w-4 h-4" />
+            {t.recordings.scanRecordings}
+          </button>
+          <button
+            onClick={() => cleanupMutation.mutate()}
+            disabled={cleanupMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            {cleanupMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
+            {t.recordings.runCleanup}
+          </button>
+        </div>
       </div>
 
       {/* Storage Stats */}
@@ -227,14 +306,21 @@ export default function Recordings() {
           <input
             type="text"
             placeholder={t.recordings.searchRecordings}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            className="w-full pl-10 pr-12 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
+          <button
+            onClick={handleSearch}
+            className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-primary-600"
+          >
+            <Search className="w-4 h-4" />
+          </button>
         </div>
         <select
           value={segmentType}
-          onChange={(e) => setSegmentType(e.target.value)}
+          onChange={(e) => handleSegmentTypeChange(e.target.value)}
           className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
           <option value="">{t.recordings.allTypes}</option>
@@ -250,7 +336,7 @@ export default function Recordings() {
           <div className="flex items-center justify-center py-12">
             <RefreshCw className="w-8 h-8 animate-spin text-primary-500" />
           </div>
-        ) : filteredRecordings.length > 0 ? (
+        ) : recordings?.recordings?.length > 0 ? (
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -264,14 +350,19 @@ export default function Recordings() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredRecordings.map((recording: Recording) => (
+              {recordings?.recordings.map((recording: Recording) => (
                 <tr key={recording.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <Film className="w-5 h-5 text-gray-400" />
-                      <span className="font-medium text-gray-900">
-                        {recording.stream_path || `Stream #${recording.stream_id}`}
-                      </span>
+                      <div>
+                        <span className="font-medium text-gray-900">
+                          {recording.stream_name || recording.stream_path || recording.file_path.split('/')[2] || `Stream #${recording.stream_id}`}
+                        </span>
+                        {recording.stream_path && recording.stream_name && (
+                          <p className="text-xs text-gray-500">{recording.stream_path}</p>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -355,10 +446,33 @@ export default function Recordings() {
         )}
       </Card>
 
-      {/* Pagination Info */}
-      {recordings && (
-        <div className="text-sm text-gray-500">
-          {t.streams.showing} {filteredRecordings.length} {t.streams.of} {recordings.total} {t.recordings.title.toLowerCase()}
+      {/* Pagination */}
+      {recordings && recordings.pages > 1 && (
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            {t.streams.showing} {recordings?.recordings?.length || 0} {t.streams.of} {recordings.total} {t.recordings.title.toLowerCase()}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              {t.common.previous}
+            </button>
+            <span className="text-sm text-gray-600">
+              {t.common.pageOf.replace('{page}', String(page)).replace('{pages}', String(recordings.pages))}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(recordings.pages, p + 1))}
+              disabled={page >= recordings.pages}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t.common.next}
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -434,6 +548,115 @@ export default function Recordings() {
               {t.common.cancel}
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Scan Recordings Modal */}
+      <Modal
+        isOpen={isScanModalOpen}
+        onClose={handleCloseScanModal}
+        title={t.recordings.scanRecordings}
+        size="md"
+      >
+        <div className="space-y-4">
+          {!scanResult ? (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {t.recordings.selectNode}
+                </label>
+                <select
+                  value={selectedNodeId || ''}
+                  onChange={(e) => setSelectedNodeId(e.target.value ? Number(e.target.value) : undefined)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">{t.recordings.allNodes}</option>
+                  {nodesData?.nodes?.map((node: MediaMTXNode) => (
+                    <option key={node.id} value={node.id}>
+                      {node.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="forceRescan"
+                  checked={forceRescan}
+                  onChange={(e) => setForceRescan(e.target.checked)}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <label htmlFor="forceRescan" className="text-sm text-gray-700">
+                  {t.recordings.forceRescan}
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  onClick={handleCloseScanModal}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                >
+                  {t.common.cancel}
+                </button>
+                <button
+                  onClick={handleStartScan}
+                  disabled={scanMutation.isPending}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {scanMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FolderSearch className="w-4 h-4" />
+                  )}
+                  {t.recordings.startScan}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={`flex items-center gap-3 p-4 rounded-lg ${
+                scanResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+              }`}>
+                {scanResult.success ? (
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                ) : (
+                  <XCircle className="w-6 h-6 text-red-600" />
+                )}
+                <span className={`font-medium ${scanResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                  {t.recordings.scanComplete}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-gray-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-gray-900">{scanResult.stats.scanned}</p>
+                  <p className="text-sm text-gray-500">{t.recordings.filesScanned}</p>
+                </div>
+                <div className="p-3 bg-green-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-green-700">{scanResult.stats.added}</p>
+                  <p className="text-sm text-green-600">{t.recordings.filesAdded}</p>
+                </div>
+                <div className="p-3 bg-yellow-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-yellow-700">{scanResult.stats.skipped}</p>
+                  <p className="text-sm text-yellow-600">{t.recordings.filesSkipped}</p>
+                </div>
+                <div className="p-3 bg-red-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-red-700">{scanResult.stats.errors}</p>
+                  <p className="text-sm text-red-600">{t.recordings.errors}</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  onClick={handleCloseScanModal}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                >
+                  {t.common.close}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
     </div>

@@ -4,16 +4,17 @@ Recording retention, disk management, and archival.
 """
 
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from flask import current_app
 
 from app import db
-from app.models import Recording, Stream, StreamEvent
+from app.models import MediaMTXNode, Recording, Stream, StreamEvent
 
 
 class RetentionManager:
@@ -297,18 +298,23 @@ class RetentionManager:
 
     def get_playback_url(self, recording: Recording) -> Dict[str, Any]:
         """Generate a playback URL for a recording."""
-        # This would typically generate a signed URL or streaming endpoint
-        # For now, return a basic file path reference
-
         if recording.is_archived and recording.archive_path:
             file_path = recording.archive_path
         else:
             file_path = recording.file_path
 
+        # Use transcode endpoint for .ts files (browser compatibility)
+        ext = Path(file_path).suffix.lower()
+        if ext == ".ts":
+            url = f"/api/recordings/{recording.id}/transcode"
+        else:
+            url = f"/api/recordings/{recording.id}/stream"
+
         return {
             "recording_id": recording.id,
             "file_path": file_path,
-            "playback_url": f"/api/recordings/{recording.id}/download",
+            "url": url,
+            "download_url": f"/api/recordings/{recording.id}/download",
             "duration_seconds": recording.duration_seconds,
             "format": self._detect_format(file_path),
         }
@@ -396,3 +402,180 @@ class RetentionManager:
 
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def scan_recordings(
+        self, node_id: Optional[int] = None, force_rescan: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Scan local recording directory and index files to database.
+
+        Args:
+            node_id: Optional node ID to filter streams by
+            force_rescan: If True, re-scan and update existing records
+
+        Returns:
+            Dictionary with scan statistics
+        """
+        stats = {"scanned": 0, "added": 0, "skipped": 0, "errors": 0, "error_details": []}
+
+        try:
+            scan_result = self._scan_local_directory(node_id, force_rescan)
+            stats.update(scan_result)
+        except Exception as e:
+            stats["errors"] += 1
+            stats["error_details"].append(f"Scan failed: {str(e)}")
+
+        return {
+            "success": stats["errors"] == 0 or stats["added"] > 0,
+            "stats": stats,
+        }
+
+    def _scan_local_directory(
+        self, node_id: Optional[int] = None, force_rescan: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Scan local recording directory for video files.
+
+        Recording structure: /recordings/{stream_path}/{YYYY-MM-DD_HH-mm-ss}.ts
+        """
+        stats = {"scanned": 0, "added": 0, "skipped": 0, "errors": 0, "error_details": []}
+
+        if not self.recording_path.exists():
+            stats["error_details"].append(
+                f"Recording path does not exist: {self.recording_path}"
+            )
+            stats["errors"] += 1
+            return stats
+
+        # Get streams to match against (optionally filtered by node)
+        stream_query = Stream.query
+        if node_id:
+            stream_query = stream_query.filter_by(node_id=node_id)
+        streams = {s.path: s for s in stream_query.all()}
+
+        # Scan directory structure
+        for stream_dir in self.recording_path.iterdir():
+            if not stream_dir.is_dir():
+                continue
+
+            stream_path = stream_dir.name
+            stream = self._find_stream_by_path(stream_path, streams, node_id)
+
+            # Scan recording files in this stream directory
+            for recording_file in stream_dir.iterdir():
+                if not recording_file.is_file():
+                    continue
+
+                # Only process video files
+                if recording_file.suffix.lower() not in [".ts", ".mp4", ".mkv", ".flv"]:
+                    continue
+
+                stats["scanned"] += 1
+                file_path = str(recording_file)
+
+                # Check if already indexed
+                existing = Recording.query.filter_by(file_path=file_path).first()
+                if existing and not force_rescan:
+                    stats["skipped"] += 1
+                    continue
+
+                # Parse recording file
+                parsed = self._parse_recording_file(recording_file)
+                if not parsed:
+                    stats["errors"] += 1
+                    stats["error_details"].append(
+                        f"Failed to parse: {recording_file.name}"
+                    )
+                    continue
+
+                try:
+                    if existing and force_rescan:
+                        # Update existing record
+                        existing.file_size = parsed["file_size"]
+                        existing.start_time = parsed["start_time"]
+                        if stream:
+                            existing.stream_id = stream.id
+                        stats["added"] += 1
+                    else:
+                        # Create new record
+                        if not stream:
+                            # Create a placeholder stream if none exists
+                            stats["errors"] += 1
+                            stats["error_details"].append(
+                                f"No matching stream for path: {stream_path}"
+                            )
+                            continue
+
+                        recording = Recording(
+                            stream_id=stream.id,
+                            file_path=file_path,
+                            file_size=parsed["file_size"],
+                            start_time=parsed["start_time"],
+                            segment_type="continuous",
+                            expires_at=parsed["start_time"]
+                            + timedelta(days=self.default_policy["continuous_retention_days"]),
+                        )
+                        db.session.add(recording)
+                        stats["added"] += 1
+
+                except Exception as e:
+                    stats["errors"] += 1
+                    stats["error_details"].append(f"Error indexing {file_path}: {str(e)}")
+
+        db.session.commit()
+        return stats
+
+    def _parse_recording_file(self, file_path: Path) -> Optional[Dict[str, Any]]:
+        """
+        Parse recording filename to extract metadata.
+
+        Expected format: YYYY-MM-DD_HH-mm-ss.ts
+        Example: 2026-01-17_04-40-07.ts
+        """
+        # Pattern: YYYY-MM-DD_HH-mm-ss
+        pattern = r"(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})"
+        match = re.search(pattern, file_path.stem)
+
+        if not match:
+            return None
+
+        try:
+            timestamp_str = match.group(1)
+            start_time = datetime.strptime(timestamp_str, "%Y-%m-%d_%H-%M-%S")
+            file_size = file_path.stat().st_size
+
+            return {
+                "start_time": start_time,
+                "file_size": file_size,
+            }
+        except (ValueError, OSError):
+            return None
+
+    def _find_stream_by_path(
+        self,
+        stream_path: str,
+        streams_cache: Dict[str, Stream],
+        node_id: Optional[int] = None,
+    ) -> Optional[Stream]:
+        """
+        Find a Stream by path, with flexible matching.
+
+        Handles cases where directory name might differ slightly from stream path.
+        """
+        # Direct match
+        if stream_path in streams_cache:
+            return streams_cache[stream_path]
+
+        # Try with/without leading slash
+        alt_path = f"/{stream_path}" if not stream_path.startswith("/") else stream_path[1:]
+        if alt_path in streams_cache:
+            return streams_cache[alt_path]
+
+        # Fuzzy match: replace underscores/dashes
+        for path, stream in streams_cache.items():
+            normalized_path = path.replace("-", "_").replace("/", "_").lower()
+            normalized_search = stream_path.replace("-", "_").replace("/", "_").lower()
+            if normalized_path == normalized_search:
+                return stream
+
+        return None

@@ -155,6 +155,17 @@ export const translations = {
       size: 'Size',
       noRecordingsFound: 'No recordings found',
       expires: 'Expires',
+      scanRecordings: 'Scan Recordings',
+      startScan: 'Start Scan',
+      selectNode: 'Select Node',
+      allNodes: 'All Nodes',
+      forceRescan: 'Force rescan existing files',
+      scanComplete: 'Scan Complete',
+      scanFailed: 'Scan Failed',
+      filesScanned: 'Files Scanned',
+      filesAdded: 'Files Added',
+      filesSkipped: 'Files Skipped',
+      errors: 'Errors',
     },
     // Testing
     testing: {
@@ -197,6 +208,7 @@ export const translations = {
       previous: 'Previous',
       next: 'Next',
       pageOf: '{page} / {pages}',
+      close: 'Close',
     },
   },
   zh: {
@@ -355,6 +367,17 @@ export const translations = {
       size: '大小',
       noRecordingsFound: '找不到錄影',
       expires: '到期日',
+      scanRecordings: '掃描錄影',
+      startScan: '開始掃描',
+      selectNode: '選擇節點',
+      allNodes: '所有節點',
+      forceRescan: '強制重新掃描已存在的檔案',
+      scanComplete: '掃描完成',
+      scanFailed: '掃描失敗',
+      filesScanned: '已掃描檔案',
+      filesAdded: '新增檔案',
+      filesSkipped: '已跳過檔案',
+      errors: '錯誤數',
     },
     // Testing
     testing: {
@@ -397,6 +420,7 @@ export const translations = {
       previous: '上一頁',
       next: '下一頁',
       pageOf: '{page} / {pages}',
+      close: '關閉',
     },
   },
 }

@@ -90,7 +90,7 @@ export const configApi = {
 
 // Recordings
 export const recordingsApi = {
-  list: (params?: { stream_id?: number; segment_type?: string; page?: number; per_page?: number }) =>
+  list: (params?: { stream_id?: number; segment_type?: string; search?: string; page?: number; per_page?: number }) =>
     api.get('/recordings/', { params }).then(r => r.data),
   get: (id: number) => api.get<Recording>(`/recordings/${id}`).then(r => r.data),
   archive: (id: number) => api.post(`/recordings/${id}/archive`).then(r => r.data),
@@ -101,6 +101,8 @@ export const recordingsApi = {
   search: (params: { stream_path?: string; start_time?: string; end_time?: string }) =>
     api.get('/recordings/search', { params }).then(r => r.data),
   getPlaybackUrl: (id: number) => api.get(`/recordings/playback/${id}`).then(r => r.data),
+  scan: (params?: { node_id?: number; force_rescan?: boolean }) =>
+    api.post('/recordings/scan', params || {}).then(r => r.data),
 }
 
 export default api

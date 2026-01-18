@@ -56,6 +56,7 @@ export interface Recording {
   id: number
   stream_id: number
   stream_path: string | null
+  stream_name: string | null
   file_path: string
   file_size: number | null
   duration_seconds: number | null
