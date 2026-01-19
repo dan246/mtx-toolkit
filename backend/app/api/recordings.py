@@ -2,11 +2,10 @@
 Recording and retention management API endpoints.
 """
 
-from datetime import datetime
-
 import os
 import re
 import subprocess
+from datetime import datetime
 
 from flask import Blueprint, Response, jsonify, request, send_file
 
@@ -199,8 +198,8 @@ def transcode_recording(recording_id: int):
     Transcode recording to MP4 on-the-fly using ffmpeg.
     This allows browsers to play .ts files that they can't natively handle.
     """
-    import tempfile
     import shutil
+    import tempfile
 
     recording = Recording.query.get_or_404(recording_id)
     file_path = recording.file_path
