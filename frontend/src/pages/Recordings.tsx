@@ -152,7 +152,7 @@ export default function Recordings() {
 
     try {
       const data = await recordingsApi.getPlaybackUrl(recording.id)
-      setPlaybackUrl(data.url || `/api/recordings/${recording.id}/stream`)
+      setPlaybackUrl(data.playback_url || `/api/recordings/${recording.id}/stream`)
     } catch (error) {
       alert(`無法取得播放連結: ${error}`)
       setIsPlayerOpen(false)
