@@ -218,13 +218,18 @@ def transcode_recording(recording_id: int):
         cmd = [
             "ffmpeg",
             "-hide_banner",
-            "-loglevel", "error",
+            "-loglevel",
+            "error",
             "-y",
-            "-i", file_path,
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-movflags", "+faststart",
-            temp_path
+            "-i",
+            file_path,
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "+faststart",
+            temp_path,
         ]
 
         result = subprocess.run(cmd, capture_output=True, timeout=300)
@@ -255,7 +260,7 @@ def transcode_recording(recording_id: int):
                 "Content-Disposition": "inline",
                 "Content-Length": file_size,
                 "Accept-Ranges": "bytes",
-            }
+            },
         )
 
     except subprocess.TimeoutExpired:
