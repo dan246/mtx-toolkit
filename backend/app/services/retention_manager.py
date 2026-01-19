@@ -313,7 +313,7 @@ class RetentionManager:
         return {
             "recording_id": recording.id,
             "file_path": file_path,
-            "url": url,
+            "playback_url": url,
             "download_url": f"/api/recordings/{recording.id}/download",
             "duration_seconds": recording.duration_seconds,
             "format": self._detect_format(file_path),
@@ -567,7 +567,9 @@ class RetentionManager:
             return streams_cache[stream_path]
 
         # Try with/without leading slash
-        alt_path = f"/{stream_path}" if not stream_path.startswith("/") else stream_path[1:]
+        alt_path = (
+            f"/{stream_path}" if not stream_path.startswith("/") else stream_path[1:]
+        )
         if alt_path in streams_cache:
             return streams_cache[alt_path]
 

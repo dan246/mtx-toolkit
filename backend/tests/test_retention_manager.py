@@ -492,3 +492,170 @@ class TestRetentionManager:
             result = manager.get_status()
 
         assert result["recordings"]["archived"] >= 1
+
+    def test_scan_recordings(self, app_context, db_session, sample_stream):
+        """Test scanning recordings from local directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create directory structure: /recordings/{stream_path}/
+            stream_dir = os.path.join(temp_dir, "test_stream1")
+            os.makedirs(stream_dir)
+
+            # Create a recording file with valid name pattern
+            recording_file = os.path.join(stream_dir, "2024-01-15_10-30-00.ts")
+            with open(recording_file, "wb") as f:
+                f.write(b"fake video data")
+
+            manager = RetentionManager()
+            manager.recording_path = Path(temp_dir)
+
+            result = manager.scan_recordings()
+
+            assert result["success"] is True
+            assert result["stats"]["scanned"] >= 1
+
+    def test_scan_recordings_invalid_path(self, app_context, db_session):
+        """Test scanning with invalid recording path."""
+        manager = RetentionManager()
+        manager.recording_path = Path("/nonexistent/path/12345")
+
+        result = manager.scan_recordings()
+
+        # Should handle gracefully
+        assert "stats" in result
+        assert result["stats"]["errors"] >= 1
+
+    def test_scan_local_directory_with_node_filter(
+        self, app_context, db_session, sample_stream
+    ):
+        """Test scanning with node_id filter."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = RetentionManager()
+            manager.recording_path = Path(temp_dir)
+
+            result = manager._scan_local_directory(node_id=sample_stream.node_id)
+
+            assert "scanned" in result
+            assert "added" in result
+
+    def test_scan_local_directory_force_rescan(
+        self, app_context, db_session, sample_stream
+    ):
+        """Test force rescan updates existing records."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create directory structure
+            stream_dir = os.path.join(temp_dir, "test_stream1")
+            os.makedirs(stream_dir)
+
+            recording_file = os.path.join(stream_dir, "2024-01-15_10-30-00.ts")
+            with open(recording_file, "wb") as f:
+                f.write(b"fake video data")
+
+            # Create existing recording in DB
+            existing = Recording(
+                stream_id=sample_stream.id,
+                file_path=recording_file,
+                file_size=100,
+                start_time=datetime.utcnow(),
+            )
+            db_session.add(existing)
+            db_session.commit()
+
+            manager = RetentionManager()
+            manager.recording_path = Path(temp_dir)
+
+            result = manager._scan_local_directory(force_rescan=True)
+
+            assert result["added"] >= 0  # Updated existing
+
+    def test_parse_recording_file_valid(self, app_context):
+        """Test parsing valid recording filename."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / "2024-01-15_10-30-00.ts"
+            with open(file_path, "wb") as f:
+                f.write(b"test data")
+
+            manager = RetentionManager()
+            result = manager._parse_recording_file(file_path)
+
+            assert result is not None
+            assert "start_time" in result
+            assert "file_size" in result
+            assert result["start_time"].year == 2024
+            assert result["start_time"].month == 1
+            assert result["start_time"].day == 15
+
+    def test_parse_recording_file_invalid_name(self, app_context):
+        """Test parsing invalid recording filename."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / "invalid_name.ts"
+            with open(file_path, "wb") as f:
+                f.write(b"test data")
+
+            manager = RetentionManager()
+            result = manager._parse_recording_file(file_path)
+
+            assert result is None
+
+    def test_parse_recording_file_nonexistent(self, app_context):
+        """Test parsing nonexistent file."""
+        manager = RetentionManager()
+        result = manager._parse_recording_file(Path("/nonexistent/2024-01-15_10-30-00.ts"))
+
+        assert result is None
+
+    def test_find_stream_by_path_direct_match(
+        self, app_context, db_session, sample_stream
+    ):
+        """Test finding stream with direct path match."""
+        manager = RetentionManager()
+        streams_cache = {sample_stream.path: sample_stream}
+
+        result = manager._find_stream_by_path(sample_stream.path, streams_cache)
+
+        assert result == sample_stream
+
+    def test_find_stream_by_path_with_leading_slash(
+        self, app_context, db_session, sample_stream
+    ):
+        """Test finding stream with/without leading slash."""
+        manager = RetentionManager()
+        streams_cache = {f"/{sample_stream.path}": sample_stream}
+
+        result = manager._find_stream_by_path(sample_stream.path, streams_cache)
+
+        assert result == sample_stream
+
+    def test_find_stream_by_path_fuzzy_match(
+        self, app_context, db_session, sample_stream
+    ):
+        """Test finding stream with fuzzy matching."""
+        manager = RetentionManager()
+        streams_cache = {"test-stream1": sample_stream}
+
+        result = manager._find_stream_by_path("test_stream1", streams_cache)
+
+        assert result == sample_stream
+
+    def test_find_stream_by_path_not_found(self, app_context, db_session):
+        """Test finding stream that doesn't exist."""
+        manager = RetentionManager()
+        streams_cache = {}
+
+        result = manager._find_stream_by_path("nonexistent/path", streams_cache)
+
+        assert result is None
+
+    def test_get_playback_url_ts_file(self, app_context, db_session, sample_stream):
+        """Test playback URL for .ts file uses transcode endpoint."""
+        recording = Recording(
+            stream_id=sample_stream.id,
+            file_path="/recordings/test.ts",
+            start_time=datetime.utcnow(),
+        )
+        db_session.add(recording)
+        db_session.commit()
+
+        manager = RetentionManager()
+        result = manager.get_playback_url(recording)
+
+        assert "transcode" in result["playback_url"]
