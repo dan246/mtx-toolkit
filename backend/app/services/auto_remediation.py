@@ -320,8 +320,8 @@ class AutoRemediation:
             node = stream.node
             api_url = node.api_url
 
-            # Delete the path using correct endpoint
-            delete_resp = httpx.delete(
+            # Delete the path using correct endpoint (response intentionally ignored)
+            httpx.delete(
                 f"{api_url}/v3/config/paths/delete/{stream.path}",
                 timeout=10,
             )
