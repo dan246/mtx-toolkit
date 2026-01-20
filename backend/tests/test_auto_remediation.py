@@ -209,9 +209,20 @@ class TestAutoRemediation:
         self, app_context, db_session, sample_stream, mock_httpx
     ):
         """Test successful reconnect attempt."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_httpx["post"].return_value = mock_response
+        # Mock GET to return sessions matching the stream path
+        mock_list_response = MagicMock()
+        mock_list_response.status_code = 200
+        mock_list_response.json.return_value = {
+            "items": [
+                {"id": "session1", "path": sample_stream.path},
+            ]
+        }
+        mock_httpx["get"].return_value = mock_list_response
+
+        # Mock POST for kicking the session
+        mock_kick_response = MagicMock()
+        mock_kick_response.status_code = 200
+        mock_httpx["post"].return_value = mock_kick_response
 
         with patch("time.sleep"):
             remediation = AutoRemediation()
@@ -223,29 +234,33 @@ class TestAutoRemediation:
     def test_try_reconnect_failure(
         self, app_context, db_session, sample_stream, mock_httpx
     ):
-        """Test failed reconnect attempt."""
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_response.text = "Internal Server Error"
-        mock_httpx["post"].return_value = mock_response
+        """Test failed reconnect attempt when no sessions found."""
+        # Mock GET to return empty sessions list
+        mock_list_response = MagicMock()
+        mock_list_response.status_code = 200
+        mock_list_response.json.return_value = {"items": []}
+        mock_httpx["get"].return_value = mock_list_response
 
         remediation = AutoRemediation()
         result = remediation._try_reconnect(sample_stream, 0)
 
         assert result.success is False
-        assert "500" in result.message
+        assert "No active sessions found" in result.message
 
     def test_try_reconnect_exception(
         self, app_context, db_session, sample_stream, mock_httpx
     ):
-        """Test reconnect with exception."""
-        mock_httpx["post"].side_effect = Exception("Connection refused")
+        """Test reconnect with exception - exceptions in session list are caught silently."""
+        # When GET throws an exception, it's caught by inner try-except
+        # and treated as no sessions found
+        mock_httpx["get"].side_effect = Exception("Connection refused")
 
         remediation = AutoRemediation()
         result = remediation._try_reconnect(sample_stream, 0)
 
         assert result.success is False
-        assert "Connection refused" in result.message
+        # Exception is caught silently, falls through to "no sessions" message
+        assert "No active sessions found" in result.message
 
     def test_try_restart_sidecar_success(
         self, app_context, db_session, sample_stream, mock_httpx
@@ -260,9 +275,10 @@ class TestAutoRemediation:
         mock_delete_response.status_code = 204
         mock_httpx["delete"].return_value = mock_delete_response
 
-        mock_patch_response = MagicMock()
-        mock_patch_response.status_code = 200
-        mock_httpx["patch"].return_value = mock_patch_response
+        # Use POST for adding path back (API v3 uses POST for add)
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_httpx["post"].return_value = mock_post_response
 
         with patch("time.sleep"):
             remediation = AutoRemediation()
@@ -292,9 +308,10 @@ class TestAutoRemediation:
         mock_delete_response.status_code = 204
         mock_httpx["delete"].return_value = mock_delete_response
 
-        mock_patch_response = MagicMock()
-        mock_patch_response.status_code = 200
-        mock_httpx["patch"].return_value = mock_patch_response
+        # Use POST for adding path (API v3 uses POST for add)
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_httpx["post"].return_value = mock_post_response
 
         with patch("time.sleep"):
             remediation = AutoRemediation()
@@ -366,9 +383,18 @@ class TestAutoRemediation:
         self, app_context, db_session, sample_unhealthy_stream, mock_httpx
     ):
         """Test successful remediation on first try."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_httpx["post"].return_value = mock_response
+        # Mock GET to return sessions matching the stream path
+        mock_list_response = MagicMock()
+        mock_list_response.status_code = 200
+        mock_list_response.json.return_value = {
+            "items": [{"id": "session1", "path": sample_unhealthy_stream.path}]
+        }
+        mock_httpx["get"].return_value = mock_list_response
+
+        # Mock POST for kicking the session
+        mock_kick_response = MagicMock()
+        mock_kick_response.status_code = 200
+        mock_httpx["post"].return_value = mock_kick_response
 
         with patch("time.sleep"):
             remediation = AutoRemediation()
@@ -382,9 +408,18 @@ class TestAutoRemediation:
         self, app_context, db_session, sample_unhealthy_stream, mock_httpx
     ):
         """Test that remediation creates start and end events."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_httpx["post"].return_value = mock_response
+        # Mock GET to return sessions matching the stream path
+        mock_list_response = MagicMock()
+        mock_list_response.status_code = 200
+        mock_list_response.json.return_value = {
+            "items": [{"id": "session1", "path": sample_unhealthy_stream.path}]
+        }
+        mock_httpx["get"].return_value = mock_list_response
+
+        # Mock POST for kicking the session
+        mock_kick_response = MagicMock()
+        mock_kick_response.status_code = 200
+        mock_httpx["post"].return_value = mock_kick_response
 
         initial_events = StreamEvent.query.filter_by(
             stream_id=sample_unhealthy_stream.id
@@ -405,12 +440,20 @@ class TestAutoRemediation:
         self, app_context, db_session, sample_unhealthy_stream, mock_httpx
     ):
         """Test remediation with forced start level."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"source": "rtsp://test"}
-        mock_httpx["get"].return_value = mock_response
-        mock_httpx["delete"].return_value = MagicMock(status_code=204)
-        mock_httpx["patch"].return_value = MagicMock(status_code=200)
+        mock_get_response = MagicMock()
+        mock_get_response.status_code = 200
+        mock_get_response.json.return_value = {"source": "rtsp://test"}
+        mock_httpx["get"].return_value = mock_get_response
+
+        mock_delete_response = MagicMock()
+        mock_delete_response.status_code = 204
+        mock_httpx["delete"].return_value = mock_delete_response
+
+        # Use POST for adding path (API v3 uses POST for add)
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_post_response.text = ""
+        mock_httpx["post"].return_value = mock_post_response
 
         with patch("time.sleep"):
             remediation = AutoRemediation()

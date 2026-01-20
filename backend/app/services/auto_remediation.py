@@ -214,7 +214,7 @@ class AutoRemediation:
                             if session_path == stream.path and session_id:
                                 kick_resp = httpx.post(
                                     f"{api_url}/v3/{session_type}/kick/{session_id}",
-                                    timeout=10
+                                    timeout=10,
                                 )
                                 if kick_resp.status_code in [200, 204]:
                                     kicked_count += 1
@@ -255,7 +255,8 @@ class AutoRemediation:
 
             # Get current path config using correct endpoint
             response = httpx.get(
-                f"{api_url}/v3/config/paths/get/{stream.path}", timeout=10
+                f"{api_url}/v3/config/paths/get/{stream.path}",
+                timeout=10,
             )
             if response.status_code != 200:
                 return RemediationResult(
@@ -268,7 +269,8 @@ class AutoRemediation:
 
             # Remove the path using correct endpoint
             delete_resp = httpx.delete(
-                f"{api_url}/v3/config/paths/delete/{stream.path}", timeout=10
+                f"{api_url}/v3/config/paths/delete/{stream.path}",
+                timeout=10,
             )
             if delete_resp.status_code not in [200, 204]:
                 return RemediationResult(
@@ -283,7 +285,7 @@ class AutoRemediation:
             add_resp = httpx.post(
                 f"{api_url}/v3/config/paths/add/{stream.path}",
                 json=path_config,
-                timeout=10
+                timeout=10,
             )
 
             if add_resp.status_code not in [200, 201, 204]:
@@ -316,7 +318,8 @@ class AutoRemediation:
 
             # Delete the path using correct endpoint
             delete_resp = httpx.delete(
-                f"{api_url}/v3/config/paths/delete/{stream.path}", timeout=10
+                f"{api_url}/v3/config/paths/delete/{stream.path}",
+                timeout=10,
             )
 
             # Path might not exist, which is OK
