@@ -14,6 +14,14 @@ class BaseConfig:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+    # Connection pool settings to prevent connection exhaustion
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_size": 5,          # 每個 worker 最多 5 個連線
+        "max_overflow": 10,      # 額外允許 10 個臨時連線
+        "pool_recycle": 300,     # 5 分鐘回收連線
+        "pool_pre_ping": True,   # 使用前檢查連線是否有效
+    }
+
     # MediaMTX defaults - 連接到主機上現有的 MediaMTX (api_mediamtx_secondary)
     MEDIAMTX_API_URL = os.getenv("MEDIAMTX_API_URL", "http://localhost:9998")
     MEDIAMTX_RTSP_URL = os.getenv("MEDIAMTX_RTSP_URL", "rtsp://localhost:8555")

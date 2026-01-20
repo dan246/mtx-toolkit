@@ -60,4 +60,9 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.generate_thumbnails_task",
         "schedule": 120.0,
     },
+    # Scan recordings every 10 minutes to index new files
+    "scan-recordings": {
+        "task": "app.tasks.scan_recordings_task",
+        "schedule": 600.0,
+    },
 }

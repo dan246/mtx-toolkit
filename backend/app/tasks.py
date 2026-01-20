@@ -4,9 +4,20 @@ Celery tasks for background processing.
 
 from datetime import datetime, timedelta
 
-from app import create_app
+from app import create_app, db
 from app.celery_app import celery_app
 from app.models import Recording, Stream, StreamStatus
+
+# 建立共享的 Flask app 實例，避免每個 task 都建立新的連線池
+_app = None
+
+
+def get_app():
+    """Get or create the shared Flask app instance."""
+    global _app
+    if _app is None:
+        _app = create_app()
+    return _app
 
 
 @celery_app.task(bind=True, soft_time_limit=60, time_limit=90)
@@ -15,7 +26,7 @@ def quick_check_all_nodes(self):
     Fast health check using MediaMTX API.
     Can check 1000+ streams in seconds.
     """
-    app = create_app()
+    app = get_app()
     with app.app_context():
         from app.services.health_checker import HealthChecker
 
@@ -28,7 +39,7 @@ def check_all_streams_health(self):
     """Deep check streams using ffprobe to get FPS, codec, etc."""
     from celery import group
 
-    app = create_app()
+    app = get_app()
     with app.app_context():
         # Get all streams that need deep probe (no FPS data)
         streams = Stream.query.filter((Stream.fps.is_(None)) | (Stream.fps == 0)).all()
@@ -62,7 +73,7 @@ def check_all_streams_health(self):
 @celery_app.task(bind=True)
 def sync_all_fleet_nodes(self):
     """Sync streams from all active fleet nodes."""
-    app = create_app()
+    app = get_app()
     with app.app_context():
         from app.services.fleet_manager import FleetManager
 
@@ -74,7 +85,7 @@ def sync_all_fleet_nodes(self):
 @celery_app.task(bind=True)
 def run_retention_cleanup(self):
     """Run retention cleanup."""
-    app = create_app()
+    app = get_app()
     with app.app_context():
         from app.services.retention_manager import RetentionManager
 
@@ -86,7 +97,7 @@ def run_retention_cleanup(self):
 @celery_app.task(bind=True)
 def archive_old_recordings(self):
     """Archive recordings older than threshold."""
-    app = create_app()
+    app = get_app()
     with app.app_context():
         from app.services.retention_manager import RetentionManager
 
@@ -116,7 +127,7 @@ def archive_old_recordings(self):
 @celery_app.task(bind=True, soft_time_limit=60, time_limit=90)
 def probe_stream_task(self, stream_id: int):
     """Probe a specific stream (async task)."""
-    app = create_app()
+    app = get_app()
     with app.app_context():
         from app.services.health_checker import HealthChecker
 
@@ -128,7 +139,7 @@ def probe_stream_task(self, stream_id: int):
 @celery_app.task(bind=True)
 def remediate_stream_task(self, stream_id: int):
     """Remediate a specific stream (async task)."""
-    app = create_app()
+    app = get_app()
     with app.app_context():
         from app.models import Stream
         from app.services.auto_remediation import AutoRemediation
@@ -144,7 +155,7 @@ def remediate_stream_task(self, stream_id: int):
 @celery_app.task(bind=True, soft_time_limit=300, time_limit=360)
 def generate_thumbnails_task(self):
     """Generate thumbnails for healthy streams."""
-    app = create_app()
+    app = get_app()
     with app.app_context():
         from app.models import MediaMTXNode
         from app.services.thumbnail_service import thumbnail_service
@@ -166,3 +177,15 @@ def generate_thumbnails_task(self):
                     failed += 1
 
         return {"generated": generated, "failed": failed, "total": len(streams)}
+
+
+@celery_app.task(bind=True, soft_time_limit=120, time_limit=180)
+def scan_recordings_task(self):
+    """Scan recording directory and index new files to database."""
+    app = get_app()
+    with app.app_context():
+        from app.services.retention_manager import RetentionManager
+
+        manager = RetentionManager()
+        result = manager.scan_recordings(force_rescan=False)
+        return result
