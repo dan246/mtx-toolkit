@@ -195,28 +195,45 @@ class AutoRemediation:
         return 1  # Start from reconnect
 
     def _try_reconnect(self, stream: Stream, attempt: int) -> RemediationResult:
-        """Try to reconnect the stream source."""
+        """Try to reconnect the stream source by kicking all RTSP sessions on this path."""
         try:
             node = stream.node
             api_url = node.api_url
+            kicked_count = 0
 
-            # Use MediaMTX API to kick/reconnect the path
-            response = httpx.post(f"{api_url}/v3/paths/{stream.path}/kick", timeout=10)
+            # Get all RTSP sessions and kick those on this path
+            for session_type in ["rtspsessions", "rtspssessions"]:
+                try:
+                    list_resp = httpx.get(f"{api_url}/v3/{session_type}/list", timeout=10)
+                    if list_resp.status_code == 200:
+                        data = list_resp.json()
+                        items = data.get("items", []) if isinstance(data, dict) else data
+                        for session in items:
+                            session_path = session.get("path", "")
+                            session_id = session.get("id", "")
+                            if session_path == stream.path and session_id:
+                                kick_resp = httpx.post(
+                                    f"{api_url}/v3/{session_type}/kick/{session_id}",
+                                    timeout=10
+                                )
+                                if kick_resp.status_code in [200, 204]:
+                                    kicked_count += 1
+                except Exception:
+                    pass  # Continue with other session types
 
-            if response.status_code in [200, 204]:
-                # Wait a bit and check if stream is back
+            if kicked_count > 0:
                 time.sleep(2)
                 return RemediationResult(
                     success=True,
                     action=RemediationAction.RECONNECT,
-                    message=f"Successfully reconnected stream on attempt {attempt + 1}",
+                    message=f"Successfully kicked {kicked_count} session(s) on attempt {attempt + 1}",
+                    details={"kicked_sessions": kicked_count},
                 )
 
             return RemediationResult(
                 success=False,
                 action=RemediationAction.RECONNECT,
-                message=f"Reconnect failed: HTTP {response.status_code}",
-                details={"response": response.text},
+                message="No active sessions found to kick, escalating to next level",
             )
 
         except Exception as e:
@@ -230,16 +247,16 @@ class AutoRemediation:
         """
         Restart the sidecar process (ffmpeg/gstreamer) for this stream.
         This is less disruptive than restarting the entire path.
+        Uses correct MediaMTX API v3 endpoints.
         """
         try:
-            # This would typically interact with a process manager
-            # For now, we'll use the MediaMTX API to remove and re-add the source
-
             node = stream.node
             api_url = node.api_url
 
-            # Get current path config
-            response = httpx.get(f"{api_url}/v3/config/paths/{stream.path}", timeout=10)
+            # Get current path config using correct endpoint
+            response = httpx.get(
+                f"{api_url}/v3/config/paths/get/{stream.path}", timeout=10
+            )
             if response.status_code != 200:
                 return RemediationResult(
                     success=False,
@@ -249,14 +266,32 @@ class AutoRemediation:
 
             path_config = response.json()
 
-            # Remove the path
-            httpx.delete(f"{api_url}/v3/config/paths/{stream.path}", timeout=10)
+            # Remove the path using correct endpoint
+            delete_resp = httpx.delete(
+                f"{api_url}/v3/config/paths/delete/{stream.path}", timeout=10
+            )
+            if delete_resp.status_code not in [200, 204]:
+                return RemediationResult(
+                    success=False,
+                    action=RemediationAction.RESTART_SIDECAR,
+                    message=f"Failed to delete path: HTTP {delete_resp.status_code}",
+                )
+
             time.sleep(1)
 
-            # Re-add the path
-            httpx.patch(
-                f"{api_url}/v3/config/paths/{stream.path}", json=path_config, timeout=10
+            # Re-add the path using correct endpoint
+            add_resp = httpx.post(
+                f"{api_url}/v3/config/paths/add/{stream.path}",
+                json=path_config,
+                timeout=10
             )
+
+            if add_resp.status_code not in [200, 201, 204]:
+                return RemediationResult(
+                    success=False,
+                    action=RemediationAction.RESTART_SIDECAR,
+                    message=f"Failed to re-add path: HTTP {add_resp.status_code}",
+                )
 
             time.sleep(3)
 
@@ -274,20 +309,23 @@ class AutoRemediation:
             )
 
     def _try_restart_path(self, stream: Stream, attempt: int) -> RemediationResult:
-        """Restart the entire path in MediaMTX."""
+        """Restart the entire path in MediaMTX using correct API v3 endpoints."""
         try:
             node = stream.node
             api_url = node.api_url
 
-            # Delete and recreate the path
-            httpx.delete(f"{api_url}/v3/config/paths/{stream.path}", timeout=10)
+            # Delete the path using correct endpoint
+            delete_resp = httpx.delete(
+                f"{api_url}/v3/config/paths/delete/{stream.path}", timeout=10
+            )
 
+            # Path might not exist, which is OK
             time.sleep(2)
 
-            # Recreate with source
+            # Recreate with source using correct endpoint
             if stream.source_url:
-                create_resp = httpx.patch(
-                    f"{api_url}/v3/config/paths/{stream.path}",
+                create_resp = httpx.post(
+                    f"{api_url}/v3/config/paths/add/{stream.path}",
                     json={"source": stream.source_url},
                     timeout=10,
                 )
@@ -300,10 +338,17 @@ class AutoRemediation:
                         message=f"Successfully restarted path on attempt {attempt + 1}",
                     )
 
+                return RemediationResult(
+                    success=False,
+                    action=RemediationAction.RESTART_PATH,
+                    message=f"Failed to recreate path: HTTP {create_resp.status_code}",
+                    details={"response": create_resp.text[:200] if create_resp.text else ""},
+                )
+
             return RemediationResult(
                 success=False,
                 action=RemediationAction.RESTART_PATH,
-                message="Path restart completed but may need manual verification",
+                message="No source URL configured for stream",
             )
 
         except Exception as e:
