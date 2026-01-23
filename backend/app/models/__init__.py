@@ -175,8 +175,12 @@ class IPBlacklist(db.Model):
     blocked_by = db.Column(db.String(255))  # Who blocked this IP
 
     # Blocking scope
-    path_pattern = db.Column(db.String(512))  # Specific path or pattern, null = all paths
-    node_id = db.Column(db.Integer, db.ForeignKey("mediamtx_nodes.id"))  # Specific node, null = all nodes
+    path_pattern = db.Column(
+        db.String(512)
+    )  # Specific path or pattern, null = all paths
+    node_id = db.Column(
+        db.Integer, db.ForeignKey("mediamtx_nodes.id")
+    )  # Specific node, null = all nodes
 
     # Temporary or permanent
     is_permanent = db.Column(db.Boolean, default=False)

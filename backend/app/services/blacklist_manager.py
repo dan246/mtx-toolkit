@@ -27,15 +27,15 @@ class BlacklistManager:
 
     # Predefined block durations
     BLOCK_DURATIONS = {
-        '5m': timedelta(minutes=5),
-        '15m': timedelta(minutes=15),
-        '30m': timedelta(minutes=30),
-        '1h': timedelta(hours=1),
-        '6h': timedelta(hours=6),
-        '24h': timedelta(hours=24),
-        '7d': timedelta(days=7),
-        '30d': timedelta(days=30),
-        'permanent': None,
+        "5m": timedelta(minutes=5),
+        "15m": timedelta(minutes=15),
+        "30m": timedelta(minutes=30),
+        "1h": timedelta(hours=1),
+        "6h": timedelta(hours=6),
+        "24h": timedelta(hours=24),
+        "7d": timedelta(days=7),
+        "30d": timedelta(days=30),
+        "permanent": None,
     }
 
     def block_ip(
@@ -43,7 +43,7 @@ class BlacklistManager:
         ip_address: str,
         reason: Optional[str] = None,
         blocked_by: Optional[str] = None,
-        duration: str = '1h',
+        duration: str = "1h",
         path_pattern: Optional[str] = None,
         node_id: Optional[int] = None,
     ) -> Dict[str, Any]:
@@ -68,7 +68,7 @@ class BlacklistManager:
             return self._update_block(existing, reason, blocked_by, duration)
 
         # Calculate expiration
-        is_permanent = duration == 'permanent'
+        is_permanent = duration == "permanent"
         expires_at = None
         if not is_permanent:
             delta = self.BLOCK_DURATIONS.get(duration, timedelta(hours=1))
@@ -90,9 +90,9 @@ class BlacklistManager:
         db.session.commit()
 
         return {
-            'success': True,
-            'message': f'IP {ip_address} blocked successfully',
-            'entry': self._entry_to_dict(entry),
+            "success": True,
+            "message": f"IP {ip_address} blocked successfully",
+            "entry": self._entry_to_dict(entry),
         }
 
     def _find_existing_block(
@@ -132,7 +132,7 @@ class BlacklistManager:
         if blocked_by:
             entry.blocked_by = blocked_by
 
-        is_permanent = duration == 'permanent'
+        is_permanent = duration == "permanent"
         entry.is_permanent = is_permanent
 
         if is_permanent:
@@ -144,9 +144,9 @@ class BlacklistManager:
         db.session.commit()
 
         return {
-            'success': True,
-            'message': f'Block for IP {entry.ip_address} updated',
-            'entry': self._entry_to_dict(entry),
+            "success": True,
+            "message": f"Block for IP {entry.ip_address} updated",
+            "entry": self._entry_to_dict(entry),
         }
 
     def unblock_ip(self, entry_id: int) -> Dict[str, Any]:
@@ -161,15 +161,15 @@ class BlacklistManager:
         """
         entry = IPBlacklist.query.get(entry_id)
         if not entry:
-            return {'success': False, 'error': 'Entry not found'}
+            return {"success": False, "error": "Entry not found"}
 
         ip_address = entry.ip_address
         entry.is_active = False
         db.session.commit()
 
         return {
-            'success': True,
-            'message': f'IP {ip_address} unblocked successfully',
+            "success": True,
+            "message": f"IP {ip_address} unblocked successfully",
         }
 
     def unblock_ip_by_address(
@@ -208,9 +208,9 @@ class BlacklistManager:
         db.session.commit()
 
         return {
-            'success': True,
-            'message': f'Unblocked {count} entries for IP {ip_address}',
-            'count': count,
+            "success": True,
+            "message": f"Unblocked {count} entries for IP {ip_address}",
+            "count": count,
         }
 
     def is_ip_blocked(
@@ -245,11 +245,11 @@ class BlacklistManager:
             # Check if this entry applies
             if self._entry_applies(entry, path, node_id):
                 return {
-                    'blocked': True,
-                    'entry': self._entry_to_dict(entry),
+                    "blocked": True,
+                    "entry": self._entry_to_dict(entry),
                 }
 
-        return {'blocked': False}
+        return {"blocked": False}
 
     def _entry_applies(
         self,
@@ -267,7 +267,7 @@ class BlacklistManager:
         if entry.path_pattern is not None and path is not None:
             # Simple wildcard matching
             pattern = entry.path_pattern
-            if pattern.endswith('*'):
+            if pattern.endswith("*"):
                 if not path.startswith(pattern[:-1]):
                     return False
             elif pattern != path:
@@ -302,10 +302,10 @@ class BlacklistManager:
         entries = query.offset((page - 1) * per_page).limit(per_page).all()
 
         return {
-            'entries': [self._entry_to_dict(e) for e in entries],
-            'total': total,
-            'page': page,
-            'pages': (total + per_page - 1) // per_page if total > 0 else 1,
+            "entries": [self._entry_to_dict(e) for e in entries],
+            "total": total,
+            "page": page,
+            "pages": (total + per_page - 1) // per_page if total > 0 else 1,
         }
 
     def get_block_stats(self) -> Dict[str, Any]:
@@ -313,13 +313,15 @@ class BlacklistManager:
         self._cleanup_expired()
 
         total_active = IPBlacklist.query.filter_by(is_active=True).count()
-        permanent = IPBlacklist.query.filter_by(is_active=True, is_permanent=True).count()
+        permanent = IPBlacklist.query.filter_by(
+            is_active=True, is_permanent=True
+        ).count()
         temporary = total_active - permanent
 
         return {
-            'total_blocked': total_active,
-            'permanent': permanent,
-            'temporary': temporary,
+            "total_blocked": total_active,
+            "permanent": permanent,
+            "temporary": temporary,
         }
 
     def _cleanup_expired(self) -> int:
@@ -348,16 +350,16 @@ class BlacklistManager:
             remaining_seconds = max(0, int(remaining.total_seconds()))
 
         return {
-            'id': entry.id,
-            'ip_address': entry.ip_address,
-            'reason': entry.reason,
-            'blocked_by': entry.blocked_by,
-            'path_pattern': entry.path_pattern,
-            'node_id': entry.node_id,
-            'node_name': entry.node.name if entry.node else None,
-            'is_permanent': entry.is_permanent,
-            'expires_at': entry.expires_at.isoformat() if entry.expires_at else None,
-            'remaining_seconds': remaining_seconds,
-            'is_active': entry.is_active,
-            'created_at': entry.created_at.isoformat(),
+            "id": entry.id,
+            "ip_address": entry.ip_address,
+            "reason": entry.reason,
+            "blocked_by": entry.blocked_by,
+            "path_pattern": entry.path_pattern,
+            "node_id": entry.node_id,
+            "node_name": entry.node.name if entry.node else None,
+            "is_permanent": entry.is_permanent,
+            "expires_at": entry.expires_at.isoformat() if entry.expires_at else None,
+            "remaining_seconds": remaining_seconds,
+            "is_active": entry.is_active,
+            "created_at": entry.created_at.isoformat(),
         }

@@ -22,19 +22,19 @@ class SessionManager:
     """
 
     SESSION_ENDPOINTS = {
-        'rtsp': '/v3/rtspsessions/list',
-        'rtsps': '/v3/rtspssessions/list',
-        'webrtc': '/v3/webrtcsessions/list',
-        'rtmp': '/v3/rtmpconns/list',
-        'srt': '/v3/srtconns/list',
+        "rtsp": "/v3/rtspsessions/list",
+        "rtsps": "/v3/rtspssessions/list",
+        "webrtc": "/v3/webrtcsessions/list",
+        "rtmp": "/v3/rtmpconns/list",
+        "srt": "/v3/srtconns/list",
     }
 
     KICK_ENDPOINTS = {
-        'rtsp': '/v3/rtspsessions/kick/',
-        'rtsps': '/v3/rtspssessions/kick/',
-        'webrtc': '/v3/webrtcsessions/kick/',
-        'rtmp': '/v3/rtmpconns/kick/',
-        'srt': '/v3/srtconns/kick/',
+        "rtsp": "/v3/rtspsessions/kick/",
+        "rtsps": "/v3/rtspssessions/kick/",
+        "webrtc": "/v3/webrtcsessions/kick/",
+        "rtmp": "/v3/rtmpconns/kick/",
+        "srt": "/v3/srtconns/kick/",
     }
 
     def __init__(self):
@@ -79,14 +79,14 @@ class SessionManager:
 
         # Filter to only show viewers (read state), not publishers
         if viewers_only:
-            all_sessions = [s for s in all_sessions if s.get('state') == 'read']
+            all_sessions = [s for s in all_sessions if s.get("state") == "read"]
 
         # Filter by path if specified
         if path:
-            all_sessions = [s for s in all_sessions if s.get('path') == path]
+            all_sessions = [s for s in all_sessions if s.get("path") == path]
 
         # Sort by created time (most recent first)
-        all_sessions.sort(key=lambda x: x.get('created', ''), reverse=True)
+        all_sessions.sort(key=lambda x: x.get("created", ""), reverse=True)
 
         # Calculate summary before pagination
         summary = self._calculate_summary(all_sessions)
@@ -98,19 +98,21 @@ class SessionManager:
         paginated_sessions = all_sessions[start_idx:end_idx]
 
         return {
-            'sessions': paginated_sessions,
-            'summary': summary,
-            'total': total,
-            'page': page,
-            'pages': (total + per_page - 1) // per_page if total > 0 else 1,
-            'errors': errors if errors else None,
+            "sessions": paginated_sessions,
+            "summary": summary,
+            "total": total,
+            "page": page,
+            "pages": (total + per_page - 1) // per_page if total > 0 else 1,
+            "errors": errors if errors else None,
         }
 
     def get_node_sessions(self, node_id: int) -> Dict[str, Any]:
         """Get all sessions from a specific node."""
         return self.get_all_sessions(node_id=node_id)
 
-    def get_path_sessions(self, path: str, stream_id: Optional[int] = None) -> Dict[str, Any]:
+    def get_path_sessions(
+        self, path: str, stream_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Get all sessions viewing a specific path.
 
@@ -130,9 +132,9 @@ class SessionManager:
         """Get summary statistics without full session list."""
         result = self.get_all_sessions(per_page=10000)  # Get all for accurate summary
         return {
-            'summary': result['summary'],
-            'total_viewers': result['summary']['total_viewers'],
-            'errors': result.get('errors'),
+            "summary": result["summary"],
+            "total_viewers": result["summary"]["total_viewers"],
+            "errors": result.get("errors"),
         }
 
     def _fetch_node_sessions(
@@ -154,14 +156,11 @@ class SessionManager:
 
         for protocol, endpoint in endpoints.items():
             try:
-                response = httpx.get(
-                    f"{node.api_url}{endpoint}",
-                    timeout=self.timeout
-                )
+                response = httpx.get(f"{node.api_url}{endpoint}", timeout=self.timeout)
 
                 if response.status_code == 200:
                     data = response.json()
-                    items = data.get('items', [])
+                    items = data.get("items", [])
 
                     for item in items:
                         session = self._normalize_session(item, node, protocol)
@@ -169,27 +168,33 @@ class SessionManager:
                             sessions.append(session)
                 elif response.status_code != 404:
                     # 404 means the endpoint doesn't exist (protocol not enabled)
-                    errors.append({
-                        'node_id': node.id,
-                        'node_name': node.name,
-                        'protocol': protocol,
-                        'error': f'HTTP {response.status_code}',
-                    })
+                    errors.append(
+                        {
+                            "node_id": node.id,
+                            "node_name": node.name,
+                            "protocol": protocol,
+                            "error": f"HTTP {response.status_code}",
+                        }
+                    )
 
             except httpx.TimeoutException:
-                errors.append({
-                    'node_id': node.id,
-                    'node_name': node.name,
-                    'protocol': protocol,
-                    'error': 'Connection timeout',
-                })
+                errors.append(
+                    {
+                        "node_id": node.id,
+                        "node_name": node.name,
+                        "protocol": protocol,
+                        "error": "Connection timeout",
+                    }
+                )
             except Exception as e:
-                errors.append({
-                    'node_id': node.id,
-                    'node_name': node.name,
-                    'protocol': protocol,
-                    'error': str(e),
-                })
+                errors.append(
+                    {
+                        "node_id": node.id,
+                        "node_name": node.name,
+                        "protocol": protocol,
+                        "error": str(e),
+                    }
+                )
 
         return sessions, errors
 
@@ -204,27 +209,27 @@ class SessionManager:
         """
         try:
             # Common fields across all protocols
-            session_id = item.get('id', '')
-            created = item.get('created', '')
-            remote_addr = item.get('remoteAddr', '')
-            state = item.get('state', 'unknown')
+            session_id = item.get("id", "")
+            created = item.get("created", "")
+            remote_addr = item.get("remoteAddr", "")
+            state = item.get("state", "unknown")
 
             # Extract client IP and port from remote_addr
             client_ip = remote_addr
             client_port = 0
-            if ':' in remote_addr:
+            if ":" in remote_addr:
                 # Handle IPv6 addresses like [::1]:port
-                if remote_addr.startswith('['):
-                    bracket_end = remote_addr.rfind(']')
-                    if bracket_end != -1 and ':' in remote_addr[bracket_end:]:
+                if remote_addr.startswith("["):
+                    bracket_end = remote_addr.rfind("]")
+                    if bracket_end != -1 and ":" in remote_addr[bracket_end:]:
                         client_ip = remote_addr[1:bracket_end]
                         try:
-                            client_port = int(remote_addr[bracket_end + 2:])
+                            client_port = int(remote_addr[bracket_end + 2 :])
                         except ValueError:
                             pass
                 else:
                     # IPv4 address:port
-                    parts = remote_addr.rsplit(':', 1)
+                    parts = remote_addr.rsplit(":", 1)
                     client_ip = parts[0]
                     if len(parts) > 1:
                         try:
@@ -236,34 +241,36 @@ class SessionManager:
             duration_seconds = 0
             if created:
                 try:
-                    created_dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
-                    duration_seconds = int((datetime.now(created_dt.tzinfo) - created_dt).total_seconds())
+                    created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    duration_seconds = int(
+                        (datetime.now(created_dt.tzinfo) - created_dt).total_seconds()
+                    )
                 except Exception:
                     pass
 
             # Protocol-specific fields
-            path = item.get('path', '')
-            bytes_received = item.get('bytesReceived', 0)
-            bytes_sent = item.get('bytesSent', 0)
+            path = item.get("path", "")
+            bytes_received = item.get("bytesReceived", 0)
+            bytes_sent = item.get("bytesSent", 0)
 
             # Transport info (RTSP-specific)
-            transport = item.get('transport', '')
+            transport = item.get("transport", "")
 
             return {
-                'id': session_id,
-                'node_id': node.id,
-                'node_name': node.name,
-                'path': path,
-                'protocol': protocol,
-                'remote_addr': remote_addr,
-                'client_ip': client_ip,
-                'client_port': client_port,
-                'state': state,
-                'created': created,
-                'duration_seconds': duration_seconds,
-                'bytes_received': bytes_received,
-                'bytes_sent': bytes_sent,
-                'transport': transport,
+                "id": session_id,
+                "node_id": node.id,
+                "node_name": node.name,
+                "path": path,
+                "protocol": protocol,
+                "remote_addr": remote_addr,
+                "client_ip": client_ip,
+                "client_port": client_port,
+                "state": state,
+                "created": created,
+                "duration_seconds": duration_seconds,
+                "bytes_received": bytes_received,
+                "bytes_sent": bytes_sent,
+                "transport": transport,
             }
 
         except Exception:
@@ -288,30 +295,33 @@ class SessionManager:
         """
         node = MediaMTXNode.query.filter_by(id=node_id, is_active=True).first()
         if not node:
-            return {'success': False, 'error': 'Node not found'}
+            return {"success": False, "error": "Node not found"}
 
         if protocol not in self.KICK_ENDPOINTS:
-            return {'success': False, 'error': f'Invalid protocol: {protocol}'}
+            return {"success": False, "error": f"Invalid protocol: {protocol}"}
 
         endpoint = self.KICK_ENDPOINTS[protocol]
 
         try:
             response = httpx.post(
-                f"{node.api_url}{endpoint}{session_id}",
-                timeout=self.timeout
+                f"{node.api_url}{endpoint}{session_id}", timeout=self.timeout
             )
 
             kicked = response.status_code == 200
             return {
-                'success': kicked,
-                'kicked': kicked,
-                'message': f'Session {session_id} kicked successfully' if kicked else f'Failed to kick: HTTP {response.status_code}',
+                "success": kicked,
+                "kicked": kicked,
+                "message": (
+                    f"Session {session_id} kicked successfully"
+                    if kicked
+                    else f"Failed to kick: HTTP {response.status_code}"
+                ),
             }
 
         except httpx.TimeoutException:
-            return {'success': False, 'error': 'Connection timeout'}
+            return {"success": False, "error": "Connection timeout"}
         except Exception as e:
-            return {'success': False, 'error': str(e)}
+            return {"success": False, "error": str(e)}
 
     def _calculate_summary(self, sessions: List[Dict]) -> Dict[str, Any]:
         """Calculate summary statistics from sessions list."""
@@ -321,20 +331,20 @@ class SessionManager:
 
         for session in sessions:
             # Count by protocol
-            protocol = session.get('protocol', 'unknown')
+            protocol = session.get("protocol", "unknown")
             by_protocol[protocol] = by_protocol.get(protocol, 0) + 1
 
             # Count by node
-            node_name = session.get('node_name', 'unknown')
+            node_name = session.get("node_name", "unknown")
             by_node[node_name] = by_node.get(node_name, 0) + 1
 
             # Count by path
-            path = session.get('path', 'unknown')
+            path = session.get("path", "unknown")
             by_path[path] = by_path.get(path, 0) + 1
 
         return {
-            'total_viewers': len(sessions),
-            'by_protocol': by_protocol,
-            'by_node': by_node,
-            'by_path': by_path,
+            "total_viewers": len(sessions),
+            "by_protocol": by_protocol,
+            "by_node": by_node,
+            "by_path": by_path,
         }

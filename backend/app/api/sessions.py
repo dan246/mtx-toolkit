@@ -32,11 +32,16 @@ def list_sessions():
     per_page = request.args.get("per_page", 50, type=int)
 
     # Validate protocol
-    valid_protocols = ['rtsp', 'rtsps', 'webrtc', 'rtmp', 'srt']
+    valid_protocols = ["rtsp", "rtsps", "webrtc", "rtmp", "srt"]
     if protocol and protocol not in valid_protocols:
-        return jsonify({
-            "error": f"Invalid protocol. Must be one of: {', '.join(valid_protocols)}"
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Invalid protocol. Must be one of: {', '.join(valid_protocols)}"
+                }
+            ),
+            400,
+        )
 
     manager = SessionManager()
     result = manager.get_all_sessions(
@@ -123,18 +128,20 @@ def get_stream_sessions(stream_id: int):
     result = manager.get_path_sessions(path="", stream_id=stream_id)
 
     # Apply pagination manually since get_path_sessions doesn't support it directly
-    sessions = result.get('sessions', [])
+    sessions = result.get("sessions", [])
     total = len(sessions)
     start_idx = (page - 1) * per_page
     end_idx = start_idx + per_page
 
-    return jsonify({
-        'sessions': sessions[start_idx:end_idx],
-        'summary': result.get('summary', {}),
-        'total': total,
-        'page': page,
-        'pages': (total + per_page - 1) // per_page if total > 0 else 1,
-    })
+    return jsonify(
+        {
+            "sessions": sessions[start_idx:end_idx],
+            "summary": result.get("summary", {}),
+            "total": total,
+            "page": page,
+            "pages": (total + per_page - 1) // per_page if total > 0 else 1,
+        }
+    )
 
 
 @sessions_bp.route("/path/<path:stream_path>", methods=["GET"])
@@ -188,10 +195,15 @@ def kick_session():
     protocol = data.get("protocol")
 
     if not all([node_id, session_id, protocol]):
-        return jsonify({
-            "success": False,
-            "error": "Missing required fields: node_id, session_id, protocol"
-        }), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Missing required fields: node_id, session_id, protocol",
+                }
+            ),
+            400,
+        )
 
     manager = SessionManager()
     result = manager.kick_session(
