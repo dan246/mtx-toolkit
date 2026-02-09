@@ -568,6 +568,58 @@ class RetentionManager:
         except (ValueError, OSError):
             return None
 
+    def get_segment_timeline(self, stream: Stream, hours: int = 24) -> Dict[str, Any]:
+        """Get recording segment timeline for gap detection."""
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        recordings = (
+            Recording.query.filter(
+                Recording.stream_id == stream.id,
+                Recording.start_time >= cutoff,
+            )
+            .order_by(Recording.start_time)
+            .all()
+        )
+
+        segments = []
+        gaps = []
+        prev_end = None
+
+        for rec in recordings:
+            start = rec.start_time
+            end = rec.end_time or (
+                start + timedelta(seconds=rec.duration_seconds)
+                if rec.duration_seconds
+                else start
+            )
+            segments.append(
+                {
+                    "id": rec.id,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "duration": rec.duration_seconds,
+                }
+            )
+
+            if prev_end and start > prev_end:
+                gap_sec = (start - prev_end).total_seconds()
+                gaps.append(
+                    {
+                        "start": prev_end.isoformat(),
+                        "end": start.isoformat(),
+                        "duration_seconds": round(gap_sec, 1),
+                    }
+                )
+            prev_end = end
+
+        return {
+            "stream_id": stream.id,
+            "hours": hours,
+            "segments": segments,
+            "gaps": gaps,
+            "total_segments": len(segments),
+            "total_gaps": len(gaps),
+        }
+
     def _find_stream_by_path(
         self,
         stream_path: str,

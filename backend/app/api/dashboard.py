@@ -216,6 +216,63 @@ def nodes_status():
     )
 
 
+@dashboard_bp.route("/liveness", methods=["GET"])
+def liveness_summary():
+    """Get liveness summary counts by classification."""
+    from app.services.liveness_probe import LivenessProbe
+
+    probe = LivenessProbe()
+    summary = probe.get_liveness_summary()
+    return jsonify(summary)
+
+
+@dashboard_bp.route("/pipeline", methods=["GET"])
+def pipeline_summary():
+    """Get recording pipeline health summary."""
+    from app.services.recording_pipeline_monitor import RecordingPipelineMonitor
+
+    monitor = RecordingPipelineMonitor()
+    data = monitor.get_pipeline_dashboard_data()
+    return jsonify(data)
+
+
+@dashboard_bp.route("/playback-health", methods=["GET"])
+def playback_health_summary():
+    """Get aggregated client playback health."""
+    from app.models import ClientPlaybackReport
+
+    recent = ClientPlaybackReport.query.filter(
+        ClientPlaybackReport.created_at >= datetime.utcnow() - timedelta(hours=1)
+    ).all()
+
+    total_stalls = sum(r.stall_count or 0 for r in recent)
+    total_reports = len(recent)
+    total_dropped = sum(r.frames_dropped or 0 for r in recent)
+    total_decoded = sum(r.frames_decoded or 0 for r in recent)
+
+    recovery_actions = {}
+    for r in recent:
+        if r.recovery_action:
+            recovery_actions[r.recovery_action] = (
+                recovery_actions.get(r.recovery_action, 0) + 1
+            )
+
+    return jsonify(
+        {
+            "total_reports": total_reports,
+            "total_stalls": total_stalls,
+            "total_frames_dropped": total_dropped,
+            "total_frames_decoded": total_decoded,
+            "drop_rate": (
+                round(total_dropped / total_decoded * 100, 2)
+                if total_decoded > 0
+                else 0
+            ),
+            "recovery_actions": recovery_actions,
+        }
+    )
+
+
 @dashboard_bp.route("/events/cleanup", methods=["POST"])
 def cleanup_events():
     """

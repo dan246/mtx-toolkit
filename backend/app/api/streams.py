@@ -166,6 +166,30 @@ def trigger_remediation(stream_id: int):
     return jsonify(result)
 
 
+@streams_bp.route("/<int:stream_id>/soft-reset", methods=["POST"])
+def trigger_soft_reset(stream_id: int):
+    """Trigger a soft reset for a stream."""
+    from app.services.auto_remediation import AutoRemediation
+
+    stream = Stream.query.get_or_404(stream_id)
+    remediation = AutoRemediation()
+    result = remediation.remediate_stream(
+        stream, force_level=0, trigger_source="manual"
+    )
+    return jsonify(result)
+
+
+@streams_bp.route("/<int:stream_id>/revive", methods=["POST"])
+def trigger_revival(stream_id: int):
+    """Trigger protocol-aware revival for a stream."""
+    from app.services.protocol_revival import ProtocolRevivalManager
+
+    stream = Stream.query.get_or_404(stream_id)
+    manager = ProtocolRevivalManager()
+    result = manager.revive_path(stream)
+    return jsonify(result)
+
+
 def _get_hls_base_url(node: MediaMTXNode, use_proxy: bool = True) -> str:
     """Derive HLS base URL from node's API URL.
 

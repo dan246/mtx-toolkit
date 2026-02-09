@@ -3,7 +3,7 @@ Pytest configuration and fixtures for MTX Toolkit backend tests.
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,11 +13,18 @@ os.environ["FLASK_ENV"] = "testing"
 
 from app import create_app, db
 from app.models import (
+    ClientPlaybackReport,
     ConfigSnapshot,
     EventType,
+    FallbackType,
     IPBlacklist,
+    LivenessClassification,
+    LivenessProbeResult,
     MediaMTXNode,
     Recording,
+    RecordingPipelineMetric,
+    RecordingPipelineStatus,
+    SourceProtocol,
     Stream,
     StreamEvent,
     StreamStatus,
@@ -41,6 +48,17 @@ def app():
             "RETRY_MAX_ATTEMPTS": 3,
             "RETRY_BASE_DELAY": 0.1,
             "RETRY_MAX_DELAY": 1.0,
+            "LIVENESS_PROBE_TIMEOUT": 5,
+            "LIVENESS_PROBE_INTERVAL": 30,
+            "LIVENESS_PTS_STALE_MS": 2000,
+            "LIVENESS_BLACK_THRESHOLD": 10.0,
+            "LIVENESS_FREEZE_SHORT_SEC": 15,
+            "LIVENESS_FREEZE_LONG_SEC": 60,
+            "FALLBACK_ASSETS_PATH": "/tmp/test_fallback_assets",
+            "FALLBACK_DEFAULT_TYPE": "color_bars",
+            "PIPELINE_WRITE_LATENCY_WARNING_MS": 500,
+            "PIPELINE_WRITE_LATENCY_CRITICAL_MS": 2000,
+            "PIPELINE_SEGMENT_GAP_WARNING_SEC": 5.0,
         }
     )
     return app
@@ -114,6 +132,100 @@ def sample_unhealthy_stream(db_session, sample_node):
         auto_remediate=True,
     )
     db_session.add(stream)
+    db_session.commit()
+    return stream
+
+
+@pytest.fixture
+def sample_stream_with_liveness(db_session, sample_node):
+    """Create a sample stream with liveness data."""
+    stream = Stream(
+        node_id=sample_node.id,
+        path="test/liveness",
+        name="Liveness Test Stream",
+        source_url="rtsp://192.168.1.100:554/liveness",
+        protocol="rtsp",
+        status=StreamStatus.HEALTHY.value,
+        auto_remediate=True,
+        liveness_classification=LivenessClassification.LIVE.value,
+        liveness_last_check=datetime.utcnow(),
+        last_pts=90000,
+        last_frame_hash="abc123def456",
+    )
+    db_session.add(stream)
+    db_session.commit()
+    return stream
+
+
+@pytest.fixture
+def sample_liveness_probe_result(db_session, sample_stream_with_liveness):
+    """Create a sample liveness probe result."""
+    result = LivenessProbeResult(
+        stream_id=sample_stream_with_liveness.id,
+        classification=LivenessClassification.LIVE.value,
+        pts_value=90000,
+        pts_delta=3000,
+        frame_hash="abc123def456",
+        frame_hash_changed=True,
+        brightness=128.0,
+        audio_rms=-20.0,
+        keyframe_present=True,
+        probe_duration_ms=150,
+    )
+    db_session.add(result)
+    db_session.commit()
+    return result
+
+
+@pytest.fixture
+def sample_stream_with_fallback(db_session, sample_node):
+    """Create a sample stream with fallback configured."""
+    stream = Stream(
+        node_id=sample_node.id,
+        path="test/fallback",
+        name="Fallback Test Stream",
+        source_url="rtsp://192.168.1.100:554/fallback",
+        protocol="rtsp",
+        status=StreamStatus.HEALTHY.value,
+        auto_remediate=True,
+        fallback_type=FallbackType.COLOR_BARS.value,
+        fallback_active=False,
+    )
+    db_session.add(stream)
+    db_session.commit()
+    return stream
+
+
+@pytest.fixture
+def sample_stream_with_recording(db_session, sample_node):
+    """Create a sample stream with recording enabled."""
+    stream = Stream(
+        node_id=sample_node.id,
+        path="test/recording",
+        name="Recording Test Stream",
+        source_url="rtsp://192.168.1.100:554/recording",
+        protocol="rtsp",
+        status=StreamStatus.HEALTHY.value,
+        recording_enabled=True,
+        recording_pipeline_status=RecordingPipelineStatus.UNKNOWN.value,
+    )
+    db_session.add(stream)
+    db_session.commit()
+
+    # Add some recordings
+    now = datetime.utcnow()
+    for i in range(3):
+        rec = Recording(
+            stream_id=stream.id,
+            file_path=f"/recordings/test_recording/rec_{i}.ts",
+            file_size=1024 * 1024 * 50,
+            duration_seconds=300,
+            start_time=now - timedelta(hours=3 - i, minutes=0),
+            end_time=now - timedelta(hours=3 - i, minutes=-5),
+            segment_type="continuous",
+        )
+        db_session.add(rec)
+
     db_session.commit()
     return stream
 

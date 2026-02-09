@@ -16,6 +16,7 @@ import StatCard from '../components/StatCard'
 import Card from '../components/Card'
 import StatusBadge from '../components/StatusBadge'
 import { dashboardApi, sessionsApi } from '../services/api'
+import type { PipelineDashboard, PlaybackHealthSummary } from '../types'
 import { useLanguage } from '../i18n/LanguageContext'
 import type { StreamEvent } from '../types'
 
@@ -47,6 +48,24 @@ export default function Dashboard() {
     queryKey: ['sessions-summary'],
     queryFn: sessionsApi.getSummary,
     refetchInterval: 10000,
+  })
+
+  const { data: livenessSummary } = useQuery({
+    queryKey: ['dashboard-liveness'],
+    queryFn: dashboardApi.getLivenessSummary,
+    refetchInterval: 15000,
+  })
+
+  const { data: pipelineSummary } = useQuery<PipelineDashboard>({
+    queryKey: ['dashboard-pipeline'],
+    queryFn: dashboardApi.getPipelineSummary,
+    refetchInterval: 30000,
+  })
+
+  const { data: playbackHealth } = useQuery<PlaybackHealthSummary>({
+    queryKey: ['dashboard-playback-health'],
+    queryFn: dashboardApi.getPlaybackHealth,
+    refetchInterval: 30000,
   })
 
   const handleResolveAll = async () => {
@@ -243,10 +262,109 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Liveness, Pipeline & Playback Widgets */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Liveness Summary */}
+        <Card title={t.dashboard.streamLiveness}>
+          <div className="space-y-3">
+            {livenessSummary && Object.entries(livenessSummary).map(([key, count]) => {
+              const livenessKeyMap: Record<string, keyof typeof t.liveness> = {
+                live: 'live', frozen: 'frozen', black_screen: 'black',
+                stale: 'stale', silent: 'silent', unknown: 'unknown',
+              }
+              return (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">{t.liveness[livenessKeyMap[key] || 'unknown']}</span>
+                  <span className={`text-sm font-semibold ${
+                    key === 'live' ? 'text-green-600' :
+                    key === 'frozen' ? 'text-blue-600' :
+                    key === 'black_screen' ? 'text-gray-800' :
+                    key === 'stale' ? 'text-orange-600' :
+                    key === 'silent' ? 'text-gray-500' :
+                    'text-gray-400'
+                  }`}>
+                    {count as number}
+                  </span>
+                </div>
+              )
+            })}
+            {!livenessSummary && <p className="text-sm text-gray-400">{t.dashboard.noData}</p>}
+          </div>
+        </Card>
+
+        {/* Pipeline Health */}
+        <Card title={t.dashboard.recordingPipeline}>
+          <div className="space-y-3">
+            {pipelineSummary ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">{t.dashboard.recordingStreams}</span>
+                  <span className="text-sm font-semibold">{pipelineSummary.total_recording_streams}</span>
+                </div>
+                {Object.entries(pipelineSummary.by_status).map(([status, count]) => {
+                  const pipelineKeyMap: Record<string, keyof typeof t.pipeline> = {
+                    healthy: 'healthy', warning: 'warning', critical: 'critical', unknown: 'unknown',
+                  }
+                  return (
+                    <div key={status} className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">{t.pipeline[pipelineKeyMap[status] || 'unknown']}</span>
+                      <span className={`text-sm font-semibold ${
+                        status === 'healthy' ? 'text-green-600' :
+                        status === 'warning' ? 'text-yellow-600' :
+                        status === 'critical' ? 'text-red-600' :
+                        'text-gray-400'
+                      }`}>{count}</span>
+                    </div>
+                  )
+                })}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">{t.dashboard.avgWriteLatency}</span>
+                  <span className="text-sm font-semibold">
+                    {pipelineSummary.avg_write_latency_ms != null
+                      ? `${pipelineSummary.avg_write_latency_ms}ms`
+                      : '-'}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">{t.dashboard.noData}</p>
+            )}
+          </div>
+        </Card>
+
+        {/* Playback Health */}
+        <Card title={t.dashboard.clientPlayback}>
+          <div className="space-y-3">
+            {playbackHealth ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">{t.dashboard.reportsLastHour}</span>
+                  <span className="text-sm font-semibold">{playbackHealth.total_reports}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">{t.dashboard.totalStalls}</span>
+                  <span className="text-sm font-semibold text-orange-600">{playbackHealth.total_stalls}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">{t.dashboard.frameDropRate}</span>
+                  <span className={`text-sm font-semibold ${
+                    playbackHealth.drop_rate > 5 ? 'text-red-600' :
+                    playbackHealth.drop_rate > 1 ? 'text-yellow-600' :
+                    'text-green-600'
+                  }`}>{playbackHealth.drop_rate}%</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">{t.dashboard.noData}</p>
+            )}
+          </div>
+        </Card>
+      </div>
+
       {/* Active Alerts & Event Management */}
       <Card
         title={t.dashboard.activeAlerts}
-        subtitle={`${alerts?.total || 0} unresolved alerts`}
+        subtitle={`${alerts?.total || 0} ${t.dashboard.unresolvedAlerts}`}
         action={
           <div className="flex gap-2">
             <button

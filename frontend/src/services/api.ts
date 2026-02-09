@@ -10,6 +10,13 @@ import type {
   RetentionStatus,
   SessionsResponse,
   SessionsSummary,
+  LivenessStatus,
+  LivenessProbeHistory,
+  FallbackStatus,
+  PlaybackReport,
+  PlaybackHealthSummary,
+  PipelineDashboard,
+  PipelineMetrics,
 } from '../types'
 
 const api = axios.create({
@@ -31,6 +38,12 @@ export const dashboardApi = {
     api.post('/dashboard/events/cleanup', { days, resolved_only: resolvedOnly }).then(r => r.data),
   resolveAllEvents: () => api.post('/dashboard/events/resolve-all').then(r => r.data),
   clearResolvedEvents: () => api.post('/dashboard/events/clear-resolved').then(r => r.data),
+  // Phase 1: Liveness
+  getLivenessSummary: () => api.get<Record<string, number>>('/dashboard/liveness').then(r => r.data),
+  // Phase 4: Playback health
+  getPlaybackHealth: () => api.get<PlaybackHealthSummary>('/dashboard/playback-health').then(r => r.data),
+  // Phase 5: Pipeline
+  getPipelineSummary: () => api.get<PipelineDashboard>('/dashboard/pipeline').then(r => r.data),
 }
 
 // Health
@@ -46,6 +59,23 @@ export const healthApi = {
   probeStream: (streamId: number) => api.post<ProbeResult>(`/health/streams/${streamId}/probe`).then(r => r.data),
   probeUrl: (url: string, protocol = 'rtsp') =>
     api.post<ProbeResult>('/health/probe', { url, protocol }).then(r => r.data),
+  // Phase 4: Playback reports
+  submitPlaybackReport: (data: {
+    stream_id: number
+    client_id?: string
+    stall_count?: number
+    stall_duration_ms?: number
+    buffer_underrun_count?: number
+    frames_decoded?: number
+    frames_dropped?: number
+    current_level?: number
+    recovery_action?: string
+    error_type?: string
+  }) => api.post('/health/playback-report', data).then(r => r.data),
+  getPlaybackReports: (streamId: number, limit = 50) =>
+    api.get<{ stream_id: number; reports: PlaybackReport[]; total: number }>(
+      `/health/playback-reports/${streamId}?limit=${limit}`
+    ).then(r => r.data),
 }
 
 // Streams
@@ -62,6 +92,9 @@ export const streamsApi = {
   getThumbnailUrl: (id: number) => `/api/streams/${id}/thumbnail?t=${Date.now()}`,
   generateThumbnails: (streamIds?: number[], force?: boolean) =>
     api.post('/streams/thumbnail/batch', { stream_ids: streamIds, force }).then(r => r.data),
+  // Phase 2: Protocol revival
+  softReset: (id: number) => api.post(`/streams/${id}/soft-reset`).then(r => r.data),
+  revive: (id: number) => api.post(`/streams/${id}/revive`).then(r => r.data),
 }
 
 // Fleet
@@ -133,6 +166,42 @@ export const sessionsApi = {
       session_id: sessionId,
       protocol: protocol,
     }).then(r => r.data),
+}
+
+// Phase 1: Liveness
+export const livenessApi = {
+  listStreams: (classification?: string) =>
+    api.get<{ streams: LivenessStatus[]; total: number }>('/liveness/streams', {
+      params: classification ? { classification } : undefined,
+    }).then(r => r.data),
+  getStream: (streamId: number) => api.get(`/liveness/streams/${streamId}`).then(r => r.data),
+  triggerProbe: (streamId: number) => api.post(`/liveness/streams/${streamId}/probe`).then(r => r.data),
+  getHistory: (streamId: number, limit = 100) =>
+    api.get<{ stream_id: number; probes: LivenessProbeHistory[]; total: number }>(
+      `/liveness/history/${streamId}?limit=${limit}`
+    ).then(r => r.data),
+}
+
+// Phase 3: Fallback
+export const fallbackApi = {
+  getConfig: (streamId: number) => api.get<FallbackStatus>(`/fallback/streams/${streamId}`).then(r => r.data),
+  configure: (streamId: number, data: { fallback_type: string; image_path?: string }) =>
+    api.put(`/fallback/streams/${streamId}`, data).then(r => r.data),
+  activate: (streamId: number) => api.post(`/fallback/streams/${streamId}/activate`).then(r => r.data),
+  deactivate: (streamId: number) => api.post(`/fallback/streams/${streamId}/deactivate`).then(r => r.data),
+  listActive: () => api.get('/fallback/active').then(r => r.data),
+}
+
+// Phase 5: Pipeline
+export const pipelineApi = {
+  getStatus: () => api.get<PipelineDashboard>('/pipeline/status').then(r => r.data),
+  getStreamPipeline: (streamId: number) => api.get(`/pipeline/streams/${streamId}`).then(r => r.data),
+  getStreamMetrics: (streamId: number, limit = 100) =>
+    api.get<{ stream_id: number; metrics: PipelineMetrics[]; total: number }>(
+      `/pipeline/streams/${streamId}/metrics?limit=${limit}`
+    ).then(r => r.data),
+  getGaps: () => api.get('/pipeline/gaps').then(r => r.data),
+  triggerCheck: (streamId: number) => api.post(`/pipeline/streams/${streamId}/check`).then(r => r.data),
 }
 
 export default api

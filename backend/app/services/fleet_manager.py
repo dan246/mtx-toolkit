@@ -65,9 +65,12 @@ class FleetManager:
                 stream = Stream.query.filter_by(node_id=node.id, path=path_name).first()
 
                 source = path_data.get("source") or {}
+                detected_protocol = self._detect_protocol(path_data)
+                source_protocol = self._detect_source_protocol(path_data)
                 if stream:
                     # Update existing
                     stream.source_url = source.get("id")
+                    stream.source_protocol = source_protocol
                     updated += 1
                 else:
                     # Create new
@@ -76,7 +79,8 @@ class FleetManager:
                         path=path_name,
                         name=path_name,
                         source_url=source.get("id"),
-                        protocol=self._detect_protocol(path_data),
+                        protocol=detected_protocol,
+                        source_protocol=source_protocol,
                         status=StreamStatus.UNKNOWN.value,
                     )
                     db.session.add(stream)
@@ -125,6 +129,27 @@ class FleetManager:
             return "webrtc"
         elif "hls" in source_type.lower():
             return "hls"
+        return "unknown"
+
+    def _detect_source_protocol(self, path_data: Dict) -> str:
+        """Detect source protocol for protocol-aware revival."""
+        source = path_data.get("source") or {}
+        source_type = source.get("type", "").lower()
+
+        if "rtsp" in source_type:
+            return "rtsp"
+        elif "rtmp" in source_type:
+            return "rtmp"
+        elif "whip" in source_type:
+            return "whip"
+        elif "whep" in source_type:
+            return "whep"
+        elif "webrtc" in source_type:
+            return "whip"
+        elif "hls" in source_type:
+            return "hls"
+        elif "srt" in source_type:
+            return "srt"
         return "unknown"
 
     def sync_all_nodes(self) -> Dict[str, Any]:

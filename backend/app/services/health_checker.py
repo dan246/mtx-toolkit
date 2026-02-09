@@ -98,6 +98,14 @@ class HealthChecker:
                         else ""
                     )
 
+                    # Extract source protocol
+                    source_type = (
+                        path_data.get("source", {}).get("type", "")
+                        if path_data.get("source")
+                        else ""
+                    )
+                    stream.source_protocol = self._map_source_protocol(source_type)
+
                     if is_ready:
                         # Stream is ready and playable
                         stream.status = StreamStatus.HEALTHY.value
@@ -493,6 +501,25 @@ class HealthChecker:
                 ),
             },
         }
+
+    def _map_source_protocol(self, source_type: str) -> str:
+        """Map MediaMTX source type to SourceProtocol value."""
+        st = source_type.lower()
+        if "rtsp" in st:
+            return "rtsp"
+        elif "rtmp" in st:
+            return "rtmp"
+        elif "whip" in st:
+            return "whip"
+        elif "whep" in st:
+            return "whep"
+        elif "webrtc" in st:
+            return "whip"
+        elif "hls" in st:
+            return "hls"
+        elif "srt" in st:
+            return "srt"
+        return "unknown"
 
     def detect_black_screen(self, url: str, duration: float = 2.0) -> bool:
         """

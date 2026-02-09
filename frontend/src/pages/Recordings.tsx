@@ -20,9 +20,10 @@ import {
 import Card from '../components/Card'
 import StatCard from '../components/StatCard'
 import Modal from '../components/Modal'
-import { recordingsApi, fleetApi } from '../services/api'
+import PipelineHealthBar from '../components/PipelineHealthBar'
+import { recordingsApi, fleetApi, pipelineApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
-import type { Recording, MediaMTXNode } from '../types'
+import type { Recording, MediaMTXNode, PipelineDashboard, PipelineStatus } from '../types'
 
 export default function Recordings() {
   const { t } = useLanguage()
@@ -69,6 +70,12 @@ export default function Recordings() {
   const { data: nodesData } = useQuery({
     queryKey: ['nodes'],
     queryFn: () => fleetApi.listNodes(),
+  })
+
+  const { data: pipelineData } = useQuery<PipelineDashboard>({
+    queryKey: ['pipeline-status'],
+    queryFn: pipelineApi.getStatus,
+    refetchInterval: 30000,
   })
 
   const archiveMutation = useMutation({
@@ -269,6 +276,46 @@ export default function Recordings() {
           color="default"
         />
       </div>
+
+      {/* Pipeline Health Summary */}
+      {pipelineData && pipelineData.total_recording_streams > 0 && (
+        <Card title={t.pipeline.recordingPipelineHealth}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {pipelineData.by_status && Object.entries(pipelineData.by_status).map(([status, count]) => {
+              const pipelineKeyMap: Record<string, keyof typeof t.pipeline> = {
+                healthy: 'healthy', warning: 'warning', critical: 'critical', unknown: 'unknown',
+              }
+              return (
+                <div key={status} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-600">{t.pipeline[pipelineKeyMap[status] || 'unknown']}</span>
+                  <span className={`text-sm font-semibold ${
+                    status === 'healthy' ? 'text-green-600' :
+                    status === 'warning' ? 'text-yellow-600' :
+                    status === 'critical' ? 'text-red-600' :
+                    'text-gray-400'
+                  }`}>{count as number}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-4 flex items-center gap-6 text-sm text-gray-600">
+            <span>{t.pipeline.avgWriteLatency}: <strong>{pipelineData.avg_write_latency_ms != null ? `${pipelineData.avg_write_latency_ms.toFixed(0)}ms` : '-'}</strong></span>
+            <span>{t.pipeline.recentGaps}: <strong className={pipelineData.recent_gaps > 0 ? 'text-orange-600' : ''}>{pipelineData.recent_gaps ?? 0}</strong></span>
+          </div>
+          {pipelineData.avg_write_latency_ms != null && (
+            <div className="mt-3">
+              <PipelineHealthBar
+                status={
+                  pipelineData.avg_write_latency_ms > 2000 ? 'critical' as PipelineStatus :
+                  pipelineData.avg_write_latency_ms > 500 ? 'warning' as PipelineStatus :
+                  'healthy' as PipelineStatus
+                }
+                writeLatencyMs={pipelineData.avg_write_latency_ms}
+              />
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Disk Warning */}
       {status?.disk.is_critical && (

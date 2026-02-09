@@ -165,7 +165,7 @@ class TestAutoRemediation:
         remediation = AutoRemediation()
         level = remediation._determine_start_level(sample_stream)
 
-        assert level == 1  # Start from reconnect
+        assert level == 0  # Start from soft reset
 
     def test_determine_start_level_some_history(
         self, app_context, db_session, sample_stream

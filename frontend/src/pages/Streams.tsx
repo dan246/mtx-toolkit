@@ -13,14 +13,18 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
+  RotateCcw,
+  Zap,
 } from 'lucide-react'
 import Card from '../components/Card'
 import Modal from '../components/Modal'
 import StatusBadge from '../components/StatusBadge'
+import LivenessBadge from '../components/LivenessBadge'
+import FallbackIndicator from '../components/FallbackIndicator'
 import StreamViewersModal from '../components/StreamViewersModal'
 import { streamsApi, healthApi, fleetApi, sessionsApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
-import type { Stream, StreamStatus, MediaMTXNode } from '../types'
+import type { Stream, StreamStatus, MediaMTXNode, LivenessClassification } from '../types'
 
 interface StreamFormData {
   path: string
@@ -130,6 +134,28 @@ export default function Streams() {
     },
     onSettled: () => {
       setRemediatingId(null)
+    },
+  })
+
+  const softResetMutation = useMutation({
+    mutationFn: (streamId: number) => streamsApi.softReset(streamId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['streams'] })
+      alert(`${t.streams.softReset} ${data.success ? t.common.success : t.common.error}`)
+    },
+    onError: (error) => {
+      alert(`${t.streams.softReset} ${t.common.error}: ${error}`)
+    },
+  })
+
+  const reviveMutation = useMutation({
+    mutationFn: (streamId: number) => streamsApi.revive(streamId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['streams'] })
+      alert(`${t.streams.protocolRevival} ${data.success ? t.common.success : t.common.error}: ${data.message || ''}`)
+    },
+    onError: (error) => {
+      alert(`${t.streams.protocolRevival} ${t.common.error}: ${error}`)
     },
   })
 
@@ -316,7 +342,15 @@ export default function Streams() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <StatusBadge status={stream.status} />
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={stream.status} />
+                      {stream.liveness_classification && stream.liveness_classification !== 'unknown' && stream.liveness_classification !== 'live' && (
+                        <LivenessBadge classification={stream.liveness_classification as LivenessClassification} />
+                      )}
+                      {stream.fallback_active && (
+                        <FallbackIndicator fallbackType={stream.fallback_type} />
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <button
@@ -347,7 +381,7 @@ export default function Streams() {
                         onClick={() => probeMutation.mutate(stream.id)}
                         disabled={probingId === stream.id}
                         className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg disabled:opacity-50"
-                        title="Probe Stream"
+                        title={t.streams.probeStream}
                       >
                         {probingId === stream.id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -355,12 +389,36 @@ export default function Streams() {
                           <Play className="w-4 h-4" />
                         )}
                       </button>
+                      <button
+                        onClick={() => softResetMutation.mutate(stream.id)}
+                        disabled={softResetMutation.isPending}
+                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
+                        title={t.streams.softReset}
+                      >
+                        {softResetMutation.isPending && softResetMutation.variables === stream.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => reviveMutation.mutate(stream.id)}
+                        disabled={reviveMutation.isPending}
+                        className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg disabled:opacity-50"
+                        title={t.streams.protocolRevival}
+                      >
+                        {reviveMutation.isPending && reviveMutation.variables === stream.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Zap className="w-4 h-4" />
+                        )}
+                      </button>
                       {stream.auto_remediate && (
                         <button
                           onClick={() => remediateMutation.mutate(stream.id)}
                           disabled={remediatingId === stream.id}
                           className="p-2 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg disabled:opacity-50"
-                          title="Remediate"
+                          title={t.streams.remediate}
                         >
                           {remediatingId === stream.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -372,14 +430,14 @@ export default function Streams() {
                       <button
                         onClick={() => handleOpenEditModal(stream)}
                         className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
-                        title="Settings"
+                        title={t.common.settings}
                       >
                         <Settings className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleOpenDeleteModal(stream)}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                        title="Delete"
+                        title={t.common.delete}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

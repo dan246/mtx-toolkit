@@ -44,6 +44,29 @@ class BaseConfig:
     CELERY_BROKER_URL = REDIS_URL
     CELERY_RESULT_BACKEND = REDIS_URL
 
+    # Phase 1: Liveness Probe
+    LIVENESS_PROBE_TIMEOUT = int(os.getenv("LIVENESS_PROBE_TIMEOUT", "5"))
+    LIVENESS_PROBE_INTERVAL = int(os.getenv("LIVENESS_PROBE_INTERVAL", "30"))
+    LIVENESS_PTS_STALE_MS = int(os.getenv("LIVENESS_PTS_STALE_MS", "2000"))
+    LIVENESS_BLACK_THRESHOLD = float(os.getenv("LIVENESS_BLACK_THRESHOLD", "10.0"))
+    LIVENESS_FREEZE_SHORT_SEC = int(os.getenv("LIVENESS_FREEZE_SHORT_SEC", "15"))
+    LIVENESS_FREEZE_LONG_SEC = int(os.getenv("LIVENESS_FREEZE_LONG_SEC", "60"))
+
+    # Phase 3: Fallback
+    FALLBACK_ASSETS_PATH = os.getenv("FALLBACK_ASSETS_PATH", "/fallback-assets")
+    FALLBACK_DEFAULT_TYPE = os.getenv("FALLBACK_DEFAULT_TYPE", "color_bars")
+
+    # Phase 5: Recording Pipeline
+    PIPELINE_WRITE_LATENCY_WARNING_MS = int(
+        os.getenv("PIPELINE_WRITE_LATENCY_WARNING_MS", "500")
+    )
+    PIPELINE_WRITE_LATENCY_CRITICAL_MS = int(
+        os.getenv("PIPELINE_WRITE_LATENCY_CRITICAL_MS", "2000")
+    )
+    PIPELINE_SEGMENT_GAP_WARNING_SEC = float(
+        os.getenv("PIPELINE_SEGMENT_GAP_WARNING_SEC", "5.0")
+    )
+
 
 class DevelopmentConfig(BaseConfig):
     """Development configuration."""

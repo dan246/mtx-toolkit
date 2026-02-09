@@ -67,6 +67,80 @@ def probe_url():
     return jsonify(result)
 
 
+@health_bp.route("/playback-report", methods=["POST"])
+def submit_playback_report():
+    """Receive client-side playback health report."""
+    from app import db
+    from app.models import ClientPlaybackReport, Stream
+
+    data = request.get_json()
+    stream_id = data.get("stream_id")
+
+    if not stream_id:
+        return jsonify({"error": "stream_id is required"}), 400
+
+    stream = Stream.query.get(stream_id)
+    if not stream:
+        return jsonify({"error": "Stream not found"}), 404
+
+    report = ClientPlaybackReport(
+        stream_id=stream_id,
+        client_id=data.get("client_id"),
+        client_ip=request.remote_addr,
+        stall_count=data.get("stall_count", 0),
+        stall_duration_ms=data.get("stall_duration_ms", 0),
+        buffer_underrun_count=data.get("buffer_underrun_count", 0),
+        frames_decoded=data.get("frames_decoded"),
+        frames_dropped=data.get("frames_dropped"),
+        current_level=data.get("current_level"),
+        recovery_action=data.get("recovery_action"),
+        error_type=data.get("error_type"),
+    )
+    db.session.add(report)
+    db.session.commit()
+
+    return jsonify({"success": True, "report_id": report.id}), 201
+
+
+@health_bp.route("/playback-reports/<int:stream_id>", methods=["GET"])
+def get_playback_reports(stream_id: int):
+    """Get recent playback reports for a stream."""
+    from app.models import ClientPlaybackReport
+
+    limit = request.args.get("limit", 50, type=int)
+
+    reports = (
+        ClientPlaybackReport.query.filter_by(stream_id=stream_id)
+        .order_by(ClientPlaybackReport.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return jsonify(
+        {
+            "stream_id": stream_id,
+            "reports": [
+                {
+                    "id": r.id,
+                    "client_id": r.client_id,
+                    "client_ip": r.client_ip,
+                    "stall_count": r.stall_count,
+                    "stall_duration_ms": r.stall_duration_ms,
+                    "buffer_underrun_count": r.buffer_underrun_count,
+                    "frames_decoded": r.frames_decoded,
+                    "frames_dropped": r.frames_dropped,
+                    "current_level": r.current_level,
+                    "recovery_action": r.recovery_action,
+                    "error_type": r.error_type,
+                    "created_at": r.created_at.isoformat(),
+                }
+                for r in reports
+            ],
+            "total": len(reports),
+        }
+    )
+
+
 @health_bp.route("/quick-check", methods=["POST"])
 def quick_check_all():
     """

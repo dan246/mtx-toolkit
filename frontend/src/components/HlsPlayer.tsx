@@ -1,6 +1,8 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import Hls from 'hls.js'
 import { Loader2, AlertCircle, Volume2, VolumeX } from 'lucide-react'
+import { healthApi } from '../services/api'
+import type { PlaybackIssue } from '../types'
 
 interface HlsPlayerProps {
   src: string
@@ -11,6 +13,10 @@ interface HlsPlayerProps {
   onError?: (error: string) => void
   onReady?: () => void
   poster?: string
+  // Phase 4: Watchdog props
+  streamId?: number
+  enableWatchdog?: boolean
+  onPlaybackIssue?: (issue: PlaybackIssue) => void
 }
 
 export default function HlsPlayer({
@@ -22,6 +28,9 @@ export default function HlsPlayer({
   onError,
   onReady,
   poster,
+  streamId,
+  enableWatchdog = true,
+  onPlaybackIssue,
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -29,12 +38,47 @@ export default function HlsPlayer({
   const [error, setError] = useState<string | null>(null)
   const [isMuted, setIsMuted] = useState(muted)
 
+  // Watchdog state refs (to avoid stale closures in setInterval)
+  const lastTimeRef = useRef<number>(0)
+  const stallCountRef = useRef<number>(0)
+  const stallStartRef = useRef<number | null>(null)
+  const clientIdRef = useRef<string>(
+    `client-${Math.random().toString(36).substring(2, 10)}`
+  )
+
+  const reportIssue = useCallback(
+    (action: 'seek_nudge' | 'level_switch' | 'full_reload', stallDurationMs: number) => {
+      const issue: PlaybackIssue = {
+        type: 'stall',
+        duration_ms: stallDurationMs,
+        action,
+      }
+      onPlaybackIssue?.(issue)
+
+      // Report to backend
+      if (streamId) {
+        healthApi.submitPlaybackReport({
+          stream_id: streamId,
+          client_id: clientIdRef.current,
+          stall_count: stallCountRef.current,
+          stall_duration_ms: stallDurationMs,
+          recovery_action: action,
+        }).catch(() => {
+          // Silently ignore report failures
+        })
+      }
+    },
+    [streamId, onPlaybackIssue]
+  )
+
   useEffect(() => {
     const video = videoRef.current
     if (!video || !src) return
 
     setIsLoading(true)
     setError(null)
+    stallCountRef.current = 0
+    stallStartRef.current = null
 
     // Clean up previous instance
     if (hlsRef.current) {
@@ -117,6 +161,80 @@ export default function HlsPlayer({
       }
     }
   }, [src, autoPlay, onError, onReady])
+
+  // Phase 4: Watchdog effect
+  useEffect(() => {
+    if (!enableWatchdog || !videoRef.current) return
+
+    const watchdogInterval = setInterval(() => {
+      const video = videoRef.current
+      const hls = hlsRef.current
+      if (!video || video.paused || isLoading || error) return
+
+      const currentTime = video.currentTime
+
+      // Stall detection: currentTime not advancing
+      if (currentTime === lastTimeRef.current && currentTime > 0) {
+        if (stallStartRef.current === null) {
+          stallStartRef.current = Date.now()
+        }
+
+        const stallDuration = Date.now() - stallStartRef.current
+        stallCountRef.current++
+
+        if (stallDuration > 30000 && hls) {
+          // 30s stall: full reload
+          reportIssue('full_reload', stallDuration)
+          hls.destroy()
+          hlsRef.current = null
+          const newHls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true,
+            backBufferLength: 90,
+            liveSyncDurationCount: 3,
+          })
+          hlsRef.current = newHls
+          newHls.loadSource(src)
+          newHls.attachMedia(video)
+          stallStartRef.current = null
+        } else if (stallDuration > 20000 && hls) {
+          // 20s stall: level switch (drop quality)
+          if (hls.currentLevel > 0) {
+            reportIssue('level_switch', stallDuration)
+            hls.currentLevel = hls.currentLevel - 1
+          }
+        } else if (stallDuration > 10000) {
+          // 10s stall: seek nudge
+          reportIssue('seek_nudge', stallDuration)
+          video.currentTime = video.currentTime + 0.1
+        }
+      } else {
+        // Playing normally, reset stall tracking
+        stallStartRef.current = null
+      }
+
+      lastTimeRef.current = currentTime
+
+      // Frame quality check
+      if ('getVideoPlaybackQuality' in video) {
+        const quality = video.getVideoPlaybackQuality()
+        if (quality.totalVideoFrames > 0) {
+          const dropRate = quality.droppedVideoFrames / quality.totalVideoFrames
+          if (dropRate > 0.05 && streamId) {
+            // >5% dropped frames
+            healthApi.submitPlaybackReport({
+              stream_id: streamId,
+              client_id: clientIdRef.current,
+              frames_decoded: quality.totalVideoFrames,
+              frames_dropped: quality.droppedVideoFrames,
+            }).catch(() => {})
+          }
+        }
+      }
+    }, 2000)
+
+    return () => clearInterval(watchdogInterval)
+  }, [enableWatchdog, isLoading, error, streamId, src, reportIssue])
 
   useEffect(() => {
     if (videoRef.current) {

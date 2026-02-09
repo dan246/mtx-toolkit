@@ -34,6 +34,16 @@ export const translations = {
       eventsCleared: 'Events cleared successfully',
       eventsResolved: 'All events resolved',
       confirmClearEvents: 'Are you sure you want to clear all resolved events?',
+      streamLiveness: 'Stream Liveness',
+      recordingPipeline: 'Recording Pipeline',
+      clientPlayback: 'Client Playback',
+      recordingStreams: 'Recording Streams',
+      avgWriteLatency: 'Avg Write Latency',
+      noData: 'No data',
+      reportsLastHour: 'Reports (1h)',
+      totalStalls: 'Total Stalls',
+      frameDropRate: 'Frame Drop Rate',
+      unresolvedAlerts: 'unresolved alerts',
     },
     // Streams
     streams: {
@@ -77,6 +87,30 @@ export const translations = {
       connectionStatus: 'Connection Status',
       connected: 'Connected',
       connecting: 'Connecting...',
+      probeStream: 'Probe Stream',
+      softReset: 'Soft Reset',
+      protocolRevival: 'Protocol Revival',
+      remediate: 'Remediate',
+    },
+    // Liveness
+    liveness: {
+      live: 'Live',
+      frozen: 'Frozen',
+      black: 'Black',
+      stale: 'Stale',
+      silent: 'Silent',
+      unknown: 'Unknown',
+      fallback: 'FALLBACK',
+    },
+    // Pipeline
+    pipeline: {
+      healthy: 'Healthy',
+      warning: 'Warning',
+      critical: 'Critical',
+      unknown: 'Unknown',
+      recordingPipelineHealth: 'Recording Pipeline Health',
+      avgWriteLatency: 'Avg Write Latency',
+      recentGaps: 'Recent Gaps',
     },
     // Preview
     preview: {
@@ -286,6 +320,16 @@ export const translations = {
       eventsCleared: '事件已清除',
       eventsResolved: '所有事件已標記為已解決',
       confirmClearEvents: '確定要清除所有已解決的事件嗎？',
+      streamLiveness: '串流活性',
+      recordingPipeline: '錄影管道',
+      clientPlayback: '客戶端播放',
+      recordingStreams: '錄影串流',
+      avgWriteLatency: '平均寫入延遲',
+      noData: '無資料',
+      reportsLastHour: '報告（1小時）',
+      totalStalls: '總卡頓數',
+      frameDropRate: '掉幀率',
+      unresolvedAlerts: '個未解決告警',
     },
     // Streams
     streams: {
@@ -329,6 +373,30 @@ export const translations = {
       connectionStatus: '連線狀態',
       connected: '已連線',
       connecting: '連線中...',
+      probeStream: '串流探測',
+      softReset: '軟重置',
+      protocolRevival: '協議復活',
+      remediate: '修復',
+    },
+    // Liveness
+    liveness: {
+      live: '正常',
+      frozen: '凍結',
+      black: '黑畫面',
+      stale: '停滯',
+      silent: '靜音',
+      unknown: '未知',
+      fallback: '備援中',
+    },
+    // Pipeline
+    pipeline: {
+      healthy: '健康',
+      warning: '警告',
+      critical: '嚴重',
+      unknown: '未知',
+      recordingPipelineHealth: '錄影管道健康狀態',
+      avgWriteLatency: '平均寫入延遲',
+      recentGaps: '最近斷檔',
     },
     // Preview
     preview: {

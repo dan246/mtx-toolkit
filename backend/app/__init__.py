@@ -31,8 +31,11 @@ def create_app(config_name: str = None) -> Flask:
     from app.api.blacklist import blacklist_bp
     from app.api.config import config_bp
     from app.api.dashboard import dashboard_bp
+    from app.api.fallback import fallback_bp
     from app.api.fleet import fleet_bp
     from app.api.health import health_bp
+    from app.api.liveness import liveness_bp
+    from app.api.pipeline import pipeline_bp
     from app.api.recordings import recordings_bp
     from app.api.sessions import sessions_bp
     from app.api.streams import streams_bp
@@ -45,6 +48,9 @@ def create_app(config_name: str = None) -> Flask:
     app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
     app.register_blueprint(sessions_bp, url_prefix="/api/sessions")
     app.register_blueprint(blacklist_bp, url_prefix="/api/blacklist")
+    app.register_blueprint(liveness_bp, url_prefix="/api/liveness")
+    app.register_blueprint(fallback_bp, url_prefix="/api/fallback")
+    app.register_blueprint(pipeline_bp, url_prefix="/api/pipeline")
 
     # Create database tables
     with app.app_context():
