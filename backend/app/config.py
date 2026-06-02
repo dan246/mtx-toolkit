@@ -36,8 +36,10 @@ class BaseConfig:
         os.getenv("JWT_ACCESS_TOKEN_EXPIRES_HOURS", "12")
     )
     # Bootstrap admin created on first startup if no users exist.
-    BOOTSTRAP_ADMIN_USERNAME = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin")
-    BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin")
+    # `or "admin"` so an explicitly-empty env value still yields a usable
+    # password rather than creating an account with an empty one.
+    BOOTSTRAP_ADMIN_USERNAME = os.getenv("BOOTSTRAP_ADMIN_USERNAME") or "admin"
+    BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD") or "admin"
 
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
