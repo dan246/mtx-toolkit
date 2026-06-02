@@ -21,7 +21,7 @@ from app.models import (
     StreamEvent,
     StreamStatus,
 )
-from app.utils.logging import get_logger
+from app.utils.logging import get_logger, redact_url
 
 logger = get_logger(__name__)
 
@@ -266,7 +266,7 @@ class LivenessProbe:
                             except (TypeError, ValueError):
                                 continue
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("pts_probe_failed", url=url, error=str(exc))
+            logger.warning("pts_probe_failed", url=redact_url(url), error=str(exc))
         return None
 
     def _get_frame_info(self, url: str) -> tuple:
@@ -299,7 +299,7 @@ class LivenessProbe:
                 if len(raw) > 0:
                     brightness = sum(raw) / len(raw)
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("frame_info_probe_failed", url=url, error=str(exc))
+            logger.warning("frame_info_probe_failed", url=redact_url(url), error=str(exc))
         return frame_hash, brightness
 
     def _get_audio_rms(self, url: str) -> Optional[float]:
@@ -334,7 +334,7 @@ class LivenessProbe:
                             except ValueError:
                                 pass
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("audio_rms_probe_failed", url=url, error=str(exc))
+            logger.warning("audio_rms_probe_failed", url=redact_url(url), error=str(exc))
         return None
 
     def _check_keyframe(self, url: str) -> Optional[bool]:
@@ -365,7 +365,7 @@ class LivenessProbe:
                 frames = data.get("frames", [])
                 return any(f.get("key_frame") == 1 for f in frames)
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("keyframe_probe_failed", url=url, error=str(exc))
+            logger.warning("keyframe_probe_failed", url=redact_url(url), error=str(exc))
         return None
 
     def _create_liveness_event(

@@ -7,9 +7,24 @@ human-friendly key/value pairs in development.
 """
 
 import logging
+import re
 import sys
 
 import structlog
+
+# Matches credentials embedded in a URL authority: scheme://user:pass@host
+_URL_CRED_RE = re.compile(r"(://)([^/@\s]+)(@)")
+
+
+def redact_url(url):
+    """Strip embedded credentials from a URL before it is logged.
+
+    rtsp://user:pass@host:554/path -> rtsp://***@host:554/path
+    Non-strings and credential-free URLs are returned unchanged.
+    """
+    if not isinstance(url, str):
+        return url
+    return _URL_CRED_RE.sub(r"\1***\3", url)
 
 _CONFIGURED = False
 
