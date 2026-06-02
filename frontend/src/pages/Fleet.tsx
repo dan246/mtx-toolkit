@@ -16,6 +16,7 @@ import StatCard from '../components/StatCard'
 import Modal from '../components/Modal'
 import { fleetApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
+import { useToast } from '../contexts/ToastContext'
 import type { MediaMTXNode } from '../types'
 
 interface NodeFormData {
@@ -34,6 +35,7 @@ const initialFormData: NodeFormData = {
 
 export default function Fleet() {
   const { t } = useLanguage()
+  const toast = useToast()
   const queryClient = useQueryClient()
   const [environment, setEnvironment] = useState<string>('')
   const [syncingId, setSyncingId] = useState<number | null>(null)
@@ -65,13 +67,13 @@ export default function Fleet() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['fleet-nodes'] })
       if (data.success) {
-        alert(`同步完成: ${data.synced} 個串流 (新增: ${data.created}, 更新: ${data.updated})`)
+        toast.success(`${t.messages.syncComplete}: ${data.synced} (${data.created}/${data.updated})`)
       } else {
-        alert(`同步失敗: ${data.error || '未知錯誤'}`)
+        toast.error(`${t.messages.syncFailed}: ${data.error || ''}`)
       }
     },
     onError: (error) => {
-      alert(`同步失敗: ${error}`)
+      toast.error(`${t.messages.syncFailed}: ${error}`)
     },
     onSettled: () => {
       setSyncingId(null)
@@ -82,10 +84,10 @@ export default function Fleet() {
     mutationFn: fleetApi.syncAll,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['fleet-nodes'] })
-      alert(`全部同步完成: ${data.successful}/${data.total_nodes} 節點成功`)
+      toast.success(`${t.messages.syncAllComplete}: ${data.successful}/${data.total_nodes}`)
     },
     onError: (error) => {
-      alert(`同步失敗: ${error}`)
+      toast.error(`${t.messages.syncFailed}: ${error}`)
     },
   })
 
@@ -99,10 +101,10 @@ export default function Fleet() {
       queryClient.invalidateQueries({ queryKey: ['fleet-overview'] })
       setIsAddModalOpen(false)
       setFormData(initialFormData)
-      alert(t.fleet.nodeAdded)
+      toast.success(t.fleet.nodeAdded)
     },
     onError: (error) => {
-      alert(`新增失敗: ${error}`)
+      toast.error(`${t.messages.addFailed}: ${error}`)
     },
   })
 
@@ -116,10 +118,10 @@ export default function Fleet() {
       setIsEditModalOpen(false)
       setSelectedNode(null)
       setFormData(initialFormData)
-      alert(t.fleet.nodeUpdated)
+      toast.success(t.fleet.nodeUpdated)
     },
     onError: (error) => {
-      alert(`更新失敗: ${error}`)
+      toast.error(`${t.messages.updateFailed}: ${error}`)
     },
   })
 
@@ -130,10 +132,10 @@ export default function Fleet() {
       queryClient.invalidateQueries({ queryKey: ['fleet-overview'] })
       setIsDeleteModalOpen(false)
       setSelectedNode(null)
-      alert(t.fleet.nodeDeleted)
+      toast.success(t.fleet.nodeDeleted)
     },
     onError: (error) => {
-      alert(`刪除失敗: ${error}`)
+      toast.error(`${t.messages.deleteFailed}: ${error}`)
     },
   })
 

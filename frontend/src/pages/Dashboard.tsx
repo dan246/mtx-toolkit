@@ -18,11 +18,15 @@ import StatusBadge from '../components/StatusBadge'
 import { dashboardApi, sessionsApi } from '../services/api'
 import type { PipelineDashboard, PlaybackHealthSummary } from '../types'
 import { useLanguage } from '../i18n/LanguageContext'
+import { useToast } from '../contexts/ToastContext'
+import { useConfirm } from '../contexts/ConfirmContext'
 import type { StreamEvent } from '../types'
 
 
 export default function Dashboard() {
   const { t } = useLanguage()
+  const toast = useToast()
+  const { confirm, prompt } = useConfirm()
   const queryClient = useQueryClient()
   const [isClearing, setIsClearing] = useState(false)
 
@@ -68,52 +72,41 @@ export default function Dashboard() {
     refetchInterval: 30000,
   })
 
-  const handleResolveAll = async () => {
+  // Shared runner: invalidate the three event-related queries, surface a
+  // success toast, and report any failure — used by all event actions below.
+  const runEventAction = async (
+    action: () => Promise<unknown>,
+    onSuccess: (result: unknown) => string,
+  ) => {
     setIsClearing(true)
     try {
-      await dashboardApi.resolveAllEvents()
-      queryClient.invalidateQueries({ queryKey: ['dashboard-alerts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-events'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-overview'] })
-      alert(t.dashboard.eventsResolved)
+      const result = await action()
+      ;['dashboard-alerts', 'dashboard-events', 'dashboard-overview'].forEach(key =>
+        queryClient.invalidateQueries({ queryKey: [key] })
+      )
+      toast.success(onSuccess(result))
     } catch (error) {
-      alert(`Error: ${error}`)
+      toast.error(`${t.common.error}: ${error}`)
     } finally {
       setIsClearing(false)
     }
   }
 
+  const clearedMessage = (result: unknown) =>
+    `${t.dashboard.eventsCleared} (${(result as { deleted_count?: number })?.deleted_count ?? 0})`
+
+  const handleResolveAll = () =>
+    runEventAction(dashboardApi.resolveAllEvents, () => t.dashboard.eventsResolved)
+
   const handleClearResolved = async () => {
-    if (!confirm(t.dashboard.confirmClearEvents)) return
-    setIsClearing(true)
-    try {
-      const result = await dashboardApi.clearResolvedEvents()
-      queryClient.invalidateQueries({ queryKey: ['dashboard-alerts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-events'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-overview'] })
-      alert(`${t.dashboard.eventsCleared} (${result.deleted_count})`)
-    } catch (error) {
-      alert(`Error: ${error}`)
-    } finally {
-      setIsClearing(false)
-    }
+    if (!(await confirm({ message: t.dashboard.confirmClearEvents }))) return
+    runEventAction(dashboardApi.clearResolvedEvents, clearedMessage)
   }
 
   const handleCleanupOldEvents = async () => {
-    const days = prompt('Delete events older than how many days?', '7')
+    const days = await prompt({ message: t.messages.cleanupDaysPrompt, defaultValue: '7', inputType: 'number' })
     if (!days) return
-    setIsClearing(true)
-    try {
-      const result = await dashboardApi.cleanupEvents(parseInt(days), false)
-      queryClient.invalidateQueries({ queryKey: ['dashboard-alerts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-events'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-overview'] })
-      alert(`${t.dashboard.eventsCleared} (${result.deleted_count})`)
-    } catch (error) {
-      alert(`Error: ${error}`)
-    } finally {
-      setIsClearing(false)
-    }
+    runEventAction(() => dashboardApi.cleanupEvents(parseInt(days), false), clearedMessage)
   }
 
   if (overviewLoading) {

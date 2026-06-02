@@ -4,6 +4,8 @@ import { Users, RefreshCw, Radio, UserX, Loader2 } from 'lucide-react'
 import Modal from './Modal'
 import { sessionsApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
+import { useToast } from '../contexts/ToastContext'
+import { useConfirm } from '../contexts/ConfirmContext'
 import type { ViewerSession, SessionProtocol } from '../types'
 
 interface StreamViewersModalProps {
@@ -44,6 +46,8 @@ export default function StreamViewersModal({
   streamPath,
 }: StreamViewersModalProps) {
   const { t } = useLanguage()
+  const toast = useToast()
+  const { confirm } = useConfirm()
   const queryClient = useQueryClient()
   const [kickingId, setKickingId] = useState<string | null>(null)
 
@@ -65,19 +69,19 @@ export default function StreamViewersModal({
         queryClient.invalidateQueries({ queryKey: ['sessions'] })
         queryClient.invalidateQueries({ queryKey: ['sessions-summary'] })
       } else {
-        alert(`${t.viewers.kickFailed}: ${data.error}`)
+        toast.error(`${t.viewers.kickFailed}: ${data.error}`)
       }
     },
     onError: (error) => {
-      alert(`${t.viewers.kickFailed}: ${error}`)
+      toast.error(`${t.viewers.kickFailed}: ${error}`)
     },
     onSettled: () => {
       setKickingId(null)
     },
   })
 
-  const handleKick = (session: ViewerSession) => {
-    if (confirm(`${t.viewers.confirmKick} ${session.client_ip}?`)) {
+  const handleKick = async (session: ViewerSession) => {
+    if (await confirm({ message: `${t.viewers.confirmKick} ${session.client_ip}?`, danger: true })) {
       kickMutation.mutate({
         nodeId: session.node_id,
         sessionId: session.id,

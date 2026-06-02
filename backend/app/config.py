@@ -8,11 +8,43 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.parent
 
 
+DEFAULT_DEV_SECRET = "dev-secret-key-change-in-production"
+
+
+def _split_csv(value: str) -> list:
+    """Parse a comma-separated env value into a clean list."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 class BaseConfig:
     """Base configuration."""
 
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_DEV_SECRET)
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # CORS — comma-separated allowlist. Defaults to the local Vite dev server.
+    # Production MUST set CORS_ORIGINS explicitly (validated in create_app).
+    CORS_ORIGINS = _split_csv(
+        os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
+    )
+
+    # Auth / JWT
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY") or os.getenv(
+        "SECRET_KEY", DEFAULT_DEV_SECRET
+    )
+    JWT_ACCESS_TOKEN_EXPIRES_HOURS = int(
+        os.getenv("JWT_ACCESS_TOKEN_EXPIRES_HOURS", "12")
+    )
+    # Bootstrap admin created on first startup if no users exist.
+    BOOTSTRAP_ADMIN_USERNAME = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin")
+    BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin")
+
+    # Logging
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    LOG_JSON = os.getenv("LOG_JSON", "true").lower() in ("1", "true", "yes")
+
+    # Require authentication on mutating/control endpoints. Disabled under tests.
+    AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() in ("1", "true", "yes")
 
     # Connection pool settings to prevent connection exhaustion
     SQLALCHEMY_ENGINE_OPTIONS = {
@@ -72,6 +104,7 @@ class DevelopmentConfig(BaseConfig):
     """Development configuration."""
 
     DEBUG = True
+    LOG_JSON = os.getenv("LOG_JSON", "false").lower() in ("1", "true", "yes")
     SQLALCHEMY_DATABASE_URI = os.getenv(
         "DATABASE_URL", f"sqlite:///{BASE_DIR}/mtx_toolkit.db"
     )
@@ -98,5 +131,7 @@ class TestingConfig(BaseConfig):
     """Testing configuration."""
 
     TESTING = True
+    AUTH_ENABLED = False  # auth decorators no-op so existing API tests keep passing
+    LOG_JSON = True
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     SQLALCHEMY_ENGINE_OPTIONS = {}  # SQLite 不支援連線池參數

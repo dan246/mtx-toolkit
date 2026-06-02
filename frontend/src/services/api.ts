@@ -19,12 +19,87 @@ import type {
   PipelineMetrics,
 } from '../types'
 
+export const TOKEN_KEY = 'mtx-toolkit-token'
+
 const api = axios.create({
   baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
 })
+
+// Attach the bearer token (if any) to every outgoing request.
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    config.headers = config.headers ?? {}
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// On 401, drop the stale token and notify the app to redirect to login.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem(TOKEN_KEY)
+      window.dispatchEvent(new Event('mtx-unauthorized'))
+    }
+    return Promise.reject(error)
+  }
+)
+
+// Auth
+export interface AuthUser {
+  id: number
+  username: string
+  role: string
+  is_active: boolean
+  last_login: string | null
+  created_at: string | null
+}
+
+export const authApi = {
+  login: (username: string, password: string) =>
+    api.post<{ token: string; user: AuthUser }>('/auth/login', { username, password }).then(r => r.data),
+  me: () => api.get<{ user: AuthUser }>('/auth/me').then(r => r.data),
+  logout: () => api.post('/auth/logout').then(r => r.data),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post('/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }).then(r => r.data),
+}
+
+// Testing
+export interface TestScenario {
+  id: string
+  name: string
+  description: string
+  command: string
+  target: string
+  status: 'ready' | 'running'
+}
+
+export const testingApi = {
+  listScenarios: () => api.get<{ scenarios: TestScenario[] }>('/testing/scenarios').then(r => r.data),
+  startScenario: (id: string) => api.post(`/testing/scenarios/${id}/start`).then(r => r.data),
+  stopScenario: (id: string) => api.post(`/testing/scenarios/${id}/stop`).then(r => r.data),
+  runIntegration: () =>
+    api.post<{ type: string; success: boolean; total: number; passed: number; failed: number }>(
+      '/testing/suite/integration'
+    ).then(r => r.data),
+  runStress: (url: string, protocol = 'rtsp', concurrency = 5) =>
+    api.post<{
+      type: string; success: boolean; concurrency: number; succeeded: number
+      failed: number; avg_latency_ms: number; max_latency_ms: number
+    }>('/testing/suite/stress', { url, protocol, concurrency }).then(r => r.data),
+  runRecovery: (streamId?: number) =>
+    api.post<{ type: string; success: boolean; path: string; before: string; after: string }>(
+      '/testing/suite/recovery', { stream_id: streamId }
+    ).then(r => r.data),
+}
 
 // Dashboard
 export const dashboardApi = {

@@ -63,6 +63,20 @@ export interface MediaMTXNode {
   unhealthy_streams: number
 }
 
+// Config plan/apply result
+export interface PlanResult {
+  can_apply?: boolean
+  validation?: {
+    valid?: boolean
+    errors?: string[]
+    warnings?: string[]
+  }
+  diff?: {
+    has_changes?: boolean
+    unified_diff?: string
+  }
+}
+
 // Event types
 export type EventSeverity = 'info' | 'warning' | 'error' | 'critical'
 

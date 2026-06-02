@@ -16,6 +16,9 @@ from flask import current_app
 
 from app import db
 from app.models import EventType, Stream, StreamEvent
+from app.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class RemediationAction(str, Enum):
@@ -123,8 +126,13 @@ class AutoRemediation:
                 fallback_mgr = FallbackManager()
                 fb_result = fallback_mgr.activate_fallback(stream)
                 fallback_activated = fb_result.get("success", False)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "fallback_activation_failed",
+                    stream_id=stream.id,
+                    path=stream.path,
+                    error=str(exc),
+                )
 
         # Create start event
         start_event = StreamEvent(
@@ -166,9 +174,11 @@ class AutoRemediation:
                     success = True
                     break
 
-                # Wait before next attempt
-                delay = self.calculate_backoff(attempt)
-                time.sleep(delay)
+                # Wait before next attempt (skip after the final attempt so we
+                # don't burn backoff time that risks the Celery task time limit)
+                if attempt < self.config["max_attempts"] - 1:
+                    delay = self.calculate_backoff(attempt)
+                    time.sleep(delay)
 
             if success:
                 break
@@ -186,8 +196,13 @@ class AutoRemediation:
                 if success:
                     fallback_mgr.deactivate_fallback(stream)
                 # On failure, keep fallback active
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "fallback_deactivation_failed",
+                    stream_id=stream.id,
+                    path=stream.path,
+                    error=str(exc),
+                )
 
         # Create result event
         end_event = StreamEvent(

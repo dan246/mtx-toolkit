@@ -17,6 +17,7 @@ import StatCard from '../components/StatCard'
 import Modal from '../components/Modal'
 import { sessionsApi, fleetApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
+import { useToast } from '../contexts/ToastContext'
 import type { ViewerSession, MediaMTXNode, SessionProtocol } from '../types'
 
 const protocolColors: Record<SessionProtocol, string> = {
@@ -45,6 +46,7 @@ function formatDuration(seconds: number): string {
 
 export default function Viewers() {
   const { t } = useLanguage()
+  const toast = useToast()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [protocolFilter, setProtocolFilter] = useState<SessionProtocol | ''>('')
@@ -90,11 +92,11 @@ export default function Viewers() {
         setKickModalOpen(false)
         setSelectedSession(null)
       } else {
-        alert(`${t.viewers.kickFailed}: ${data.error}`)
+        toast.error(`${t.viewers.kickFailed}: ${data.error}`)
       }
     },
     onError: (error) => {
-      alert(`${t.viewers.kickFailed}: ${error}`)
+      toast.error(`${t.viewers.kickFailed}: ${error}`)
     },
     onSettled: () => {
       setKickingId(null)

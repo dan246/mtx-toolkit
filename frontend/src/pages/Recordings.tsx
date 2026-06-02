@@ -23,10 +23,12 @@ import Modal from '../components/Modal'
 import PipelineHealthBar from '../components/PipelineHealthBar'
 import { recordingsApi, fleetApi, pipelineApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
+import { useToast } from '../contexts/ToastContext'
 import type { Recording, MediaMTXNode, PipelineDashboard, PipelineStatus } from '../types'
 
 export default function Recordings() {
   const { t } = useLanguage()
+  const toast = useToast()
   const queryClient = useQueryClient()
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -85,10 +87,10 @@ export default function Recordings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recordings'] })
-      alert('歸檔成功！')
+      toast.success(t.messages.archiveSuccess)
     },
     onError: (error) => {
-      alert(`歸檔失敗: ${error}`)
+      toast.error(`${t.messages.archiveFailed}: ${error}`)
     },
     onSettled: () => {
       setArchivingId(null)
@@ -100,10 +102,10 @@ export default function Recordings() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['recordings'] })
       queryClient.invalidateQueries({ queryKey: ['retention-status'] })
-      alert(`清理完成！刪除了 ${data.deleted_count || 0} 個檔案`)
+      toast.success(`${t.messages.cleanupComplete}: ${data.deleted_count || 0} ${t.messages.filesDeleted}`)
     },
     onError: (error) => {
-      alert(`清理失敗: ${error}`)
+      toast.error(`${t.messages.cleanupFailed}: ${error}`)
     },
   })
 
@@ -116,7 +118,7 @@ export default function Recordings() {
       queryClient.invalidateQueries({ queryKey: ['retention-status'] })
     },
     onError: (error) => {
-      alert(`${t.recordings.scanFailed}: ${error}`)
+      toast.error(`${t.recordings.scanFailed}: ${error}`)
     },
   })
 
@@ -161,7 +163,7 @@ export default function Recordings() {
       const data = await recordingsApi.getPlaybackUrl(recording.id)
       setPlaybackUrl(data.playback_url || `/api/recordings/${recording.id}/stream`)
     } catch (error) {
-      alert(`無法取得播放連結: ${error}`)
+      toast.error(`${t.messages.playbackUrlFailed}: ${error}`)
       setIsPlayerOpen(false)
     } finally {
       setLoadingPlayback(false)
@@ -183,9 +185,9 @@ export default function Recordings() {
       link.click()
       document.body.removeChild(link)
 
-      alert('下載已開始')
+      toast.info(t.messages.downloadStarted)
     } catch (error) {
-      alert(`下載失敗: ${error}`)
+      toast.error(`${t.messages.downloadFailed}: ${error}`)
     } finally {
       setDownloadingId(null)
     }
@@ -548,7 +550,7 @@ export default function Recordings() {
             </div>
           ) : (
             <div className="flex items-center justify-center py-12 text-gray-500">
-              無法載入影片
+              {t.common.error}
             </div>
           )}
 

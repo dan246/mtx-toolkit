@@ -10,9 +10,11 @@ import {
   FlaskConical,
   Activity,
   Users,
+  LogOut,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useLanguage } from '../i18n/LanguageContext'
+import { useAuth } from '../contexts/AuthContext'
 import LanguageSwitcher from './LanguageSwitcher'
 
 interface LayoutProps {
@@ -33,6 +35,7 @@ const navItems = [
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const { t } = useLanguage()
+  const { user, logout } = useAuth()
 
   return (
     <div className="min-h-screen flex">
@@ -80,9 +83,28 @@ export default function Layout({ children }: LayoutProps) {
           <LanguageSwitcher />
         </div>
 
+        {/* User + Logout */}
+        <div className="p-4 border-t border-slate-700">
+          {user && (
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{user.username}</p>
+                <p className="text-xs text-slate-400 capitalize">{user.role}</p>
+              </div>
+              <button
+                onClick={logout}
+                title={t.auth.signOut}
+                className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Footer */}
         <div className="p-4 border-t border-slate-700 text-xs text-slate-400">
-          <p>v0.1.0</p>
+          <p>v0.2.0</p>
         </div>
       </aside>
 

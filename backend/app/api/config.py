@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify, request
 
 from app.models import ConfigSnapshot, MediaMTXNode
 from app.services.config_manager import ConfigManager
+from app.utils.auth import current_username
 
 config_bp = Blueprint("config", __name__)
 manager = ConfigManager()
@@ -100,7 +101,7 @@ def apply_config():
     new_config_yaml = data.get("config_yaml")
     environment = data.get("environment")
     notes = data.get("notes")
-    applied_by = data.get("applied_by", "api")
+    applied_by = data.get("applied_by") or current_username("api")
 
     result = manager.apply(
         node_id=node_id,
@@ -118,7 +119,7 @@ def rollback_config():
     """Rollback to a previous config snapshot."""
     data = request.get_json()
     snapshot_id = data.get("snapshot_id")
-    applied_by = data.get("applied_by", "api")
+    applied_by = data.get("applied_by") or current_username("api")
 
     result = manager.rollback(snapshot_id=snapshot_id, applied_by=applied_by)
 

@@ -409,10 +409,10 @@ class TestSubprocessMocking:
 
     @patch("app.services.liveness_probe.subprocess.run")
     def test_get_pts_success(self, mock_run, app_context):
-        """Test _get_pts returns PTS value from ffprobe output."""
+        """Test _get_pts returns PTS from the modern ffmpeg ``pts`` field."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=json.dumps({"frames": [{"pkt_pts": 90000}]}),
+            stdout=json.dumps({"frames": [{"pts": 90000}]}),
         )
 
         probe = LivenessProbe()
@@ -420,6 +420,39 @@ class TestSubprocessMocking:
 
         assert result == 90000
         mock_run.assert_called_once()
+
+    @patch("app.services.liveness_probe.subprocess.run")
+    def test_get_pts_fallback_fields(self, mock_run, app_context):
+        """`pts` is preferred, but best_effort_timestamp/pkt_pts are fallbacks."""
+        probe = LivenessProbe()
+
+        # best_effort_timestamp used when pts is missing
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps(
+                {"frames": [{"best_effort_timestamp": 12345, "pkt_pts": 999}]}
+            ),
+        )
+        assert probe._get_pts("rtsp://localhost:8554/test") == 12345
+
+        # legacy pkt_pts still works on old ffmpeg builds
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({"frames": [{"pkt_pts": 555}]}),
+        )
+        assert probe._get_pts("rtsp://localhost:8554/test") == 555
+
+    @patch("app.services.liveness_probe.subprocess.run")
+    def test_get_pts_ignores_na(self, mock_run, app_context):
+        """'N/A' values are skipped rather than raising."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps(
+                {"frames": [{"pts": "N/A", "best_effort_timestamp": 4242}]}
+            ),
+        )
+        probe = LivenessProbe()
+        assert probe._get_pts("rtsp://localhost:8554/test") == 4242
 
     @patch("app.services.liveness_probe.subprocess.run")
     def test_get_pts_failure(self, mock_run, app_context):

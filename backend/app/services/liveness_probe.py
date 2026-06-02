@@ -21,6 +21,9 @@ from app.models import (
     StreamEvent,
     StreamStatus,
 )
+from app.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class LivenessProbe:
@@ -222,7 +225,13 @@ class LivenessProbe:
         }
 
     def _get_pts(self, url: str) -> Optional[int]:
-        """Get current PTS value from stream."""
+        """Get current PTS value from stream.
+
+        Modern ffmpeg exposes the presentation timestamp as ``pts`` /
+        ``best_effort_timestamp``; the legacy ``pkt_pts`` field was removed
+        years ago. We request all of them and pick the first that is present
+        so the probe works across ffmpeg versions.
+        """
         try:
             cmd = [
                 "ffprobe",
@@ -231,7 +240,7 @@ class LivenessProbe:
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "frame=pkt_pts",
+                "frame=pts,best_effort_timestamp,pkt_pts",
                 "-read_intervals",
                 "%+0.5",
                 "-of",
@@ -248,11 +257,16 @@ class LivenessProbe:
                 data = json.loads(result.stdout)
                 frames = data.get("frames", [])
                 if frames:
-                    pts = frames[-1].get("pkt_pts")
-                    if pts is not None:
-                        return int(pts)
-        except Exception:
-            pass
+                    last = frames[-1]
+                    for field in ("pts", "best_effort_timestamp", "pkt_pts"):
+                        value = last.get(field)
+                        if value is not None and value != "N/A":
+                            try:
+                                return int(value)
+                            except (TypeError, ValueError):
+                                continue
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("pts_probe_failed", url=url, error=str(exc))
         return None
 
     def _get_frame_info(self, url: str) -> tuple:
@@ -284,8 +298,8 @@ class LivenessProbe:
                 # Average brightness
                 if len(raw) > 0:
                     brightness = sum(raw) / len(raw)
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("frame_info_probe_failed", url=url, error=str(exc))
         return frame_hash, brightness
 
     def _get_audio_rms(self, url: str) -> Optional[float]:
@@ -319,8 +333,8 @@ class LivenessProbe:
                                 return float(parts[-1].strip())
                             except ValueError:
                                 pass
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("audio_rms_probe_failed", url=url, error=str(exc))
         return None
 
     def _check_keyframe(self, url: str) -> Optional[bool]:
@@ -350,8 +364,8 @@ class LivenessProbe:
                 data = json.loads(result.stdout)
                 frames = data.get("frames", [])
                 return any(f.get("key_frame") == 1 for f in frames)
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("keyframe_probe_failed", url=url, error=str(exc))
         return None
 
     def _create_liveness_event(
