@@ -111,7 +111,12 @@ def get_playback_reports(stream_id: int):
 
     reports = (
         ClientPlaybackReport.query.filter_by(stream_id=stream_id)
-        .order_by(ClientPlaybackReport.created_at.desc())
+        # id is the tie-breaker so ordering is stable when rows share a
+        # created_at timestamp (sub-second collisions in fast inserts/tests).
+        .order_by(
+            ClientPlaybackReport.created_at.desc(),
+            ClientPlaybackReport.id.desc(),
+        )
         .limit(limit)
         .all()
     )
