@@ -26,6 +26,7 @@ def redact_url(url):
         return url
     return _URL_CRED_RE.sub(r"\1***\3", url)
 
+
 _CONFIGURED = False
 
 

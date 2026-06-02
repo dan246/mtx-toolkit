@@ -59,9 +59,7 @@ class TestSuites:
         with patch.object(
             TestRunner, "run_integration", wraps=TestRunner().run_integration
         ):
-            with patch(
-                "app.services.test_runner.HealthChecker"
-            ) as MockChecker:
+            with patch("app.services.test_runner.HealthChecker") as MockChecker:
                 MockChecker.return_value.probe_stream.return_value = {
                     "is_healthy": True,
                     "status": "healthy",

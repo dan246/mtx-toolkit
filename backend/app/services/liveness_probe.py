@@ -299,7 +299,9 @@ class LivenessProbe:
                 if len(raw) > 0:
                     brightness = sum(raw) / len(raw)
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("frame_info_probe_failed", url=redact_url(url), error=str(exc))
+            logger.warning(
+                "frame_info_probe_failed", url=redact_url(url), error=str(exc)
+            )
         return frame_hash, brightness
 
     def _get_audio_rms(self, url: str) -> Optional[float]:
@@ -334,7 +336,9 @@ class LivenessProbe:
                             except ValueError:
                                 pass
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("audio_rms_probe_failed", url=redact_url(url), error=str(exc))
+            logger.warning(
+                "audio_rms_probe_failed", url=redact_url(url), error=str(exc)
+            )
         return None
 
     def _check_keyframe(self, url: str) -> Optional[bool]:

@@ -127,7 +127,9 @@ class TestRunner:
         except FileNotFoundError:
             return {"success": False, "error": "ffmpeg not found on server"}
         except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("scenario_start_failed", scenario=scenario_id, error=str(exc))
+            logger.warning(
+                "scenario_start_failed", scenario=scenario_id, error=str(exc)
+            )
             return {"success": False, "error": str(exc)}
 
         # Give ffmpeg a moment; if it exits immediately, surface the error.
