@@ -137,7 +137,7 @@ def probe_stream_task(self, stream_id: int):
 
 
 @celery_app.task(bind=True)
-def remediate_stream_task(self, stream_id: int):
+def remediate_stream_task(self, stream_id: int, trigger_source: str = "health_check"):
     """Remediate a specific stream (async task)."""
     app = get_app()
     with app.app_context():
@@ -149,7 +149,7 @@ def remediate_stream_task(self, stream_id: int):
             return {"error": "Stream not found"}
 
         remediation = AutoRemediation()
-        return remediation.remediate_stream(stream)
+        return remediation.remediate_stream(stream, trigger_source=trigger_source)
 
 
 @celery_app.task(bind=True, soft_time_limit=300, time_limit=360)
@@ -189,3 +189,99 @@ def scan_recordings_task(self):
         manager = RetentionManager()
         result = manager.scan_recordings(force_rescan=False)
         return result
+
+
+# Phase 1: Liveness Probe tasks
+@celery_app.task(bind=True, soft_time_limit=60, time_limit=90)
+def liveness_probe_all_streams(self):
+    """Dispatch liveness probes for all ready streams via Celery group."""
+    from celery import group
+
+    app = get_app()
+    with app.app_context():
+        streams = Stream.query.filter(
+            Stream.status.in_([StreamStatus.HEALTHY.value, StreamStatus.DEGRADED.value])
+        ).all()
+
+        if not streams:
+            return {"probed": 0, "results": []}
+
+        # Fan out to individual probe tasks
+        job = group(liveness_probe_stream.s(s.id) for s in streams)
+        job.apply_async()
+
+        return {"dispatched": len(streams)}
+
+
+@celery_app.task(bind=True, soft_time_limit=60, time_limit=90)
+def liveness_probe_stream(self, stream_id: int):
+    """Probe a specific stream for liveness."""
+    app = get_app()
+    with app.app_context():
+        from app.services.liveness_probe import LivenessProbe
+
+        stream = Stream.query.get(stream_id)
+        if not stream:
+            return {"error": "Stream not found"}
+
+        probe = LivenessProbe()
+        return probe.probe_stream(stream)
+
+
+# Phase 2: Protocol Revival task
+@celery_app.task(bind=True, soft_time_limit=120, time_limit=180)
+def protocol_revive_stream(self, stream_id: int):
+    """Execute protocol-aware revival for a stream."""
+    app = get_app()
+    with app.app_context():
+        from app.services.protocol_revival import ProtocolRevivalManager
+
+        stream = Stream.query.get(stream_id)
+        if not stream:
+            return {"error": "Stream not found"}
+
+        manager = ProtocolRevivalManager()
+        return manager.revive_path(stream)
+
+
+# Phase 3: Fallback tasks
+@celery_app.task(bind=True, soft_time_limit=120, time_limit=180)
+def activate_fallback_task(self, stream_id: int):
+    """Activate fallback for a stream."""
+    app = get_app()
+    with app.app_context():
+        from app.services.fallback_manager import FallbackManager
+
+        stream = Stream.query.get(stream_id)
+        if not stream:
+            return {"error": "Stream not found"}
+
+        manager = FallbackManager()
+        return manager.activate_fallback(stream)
+
+
+@celery_app.task(bind=True, soft_time_limit=60, time_limit=90)
+def deactivate_fallback_task(self, stream_id: int):
+    """Deactivate fallback for a stream."""
+    app = get_app()
+    with app.app_context():
+        from app.services.fallback_manager import FallbackManager
+
+        stream = Stream.query.get(stream_id)
+        if not stream:
+            return {"error": "Stream not found"}
+
+        manager = FallbackManager()
+        return manager.deactivate_fallback(stream)
+
+
+# Phase 5: Recording Pipeline task
+@celery_app.task(bind=True, soft_time_limit=30, time_limit=45)
+def check_recording_pipelines(self):
+    """Check recording pipeline health for all streams."""
+    app = get_app()
+    with app.app_context():
+        from app.services.recording_pipeline_monitor import RecordingPipelineMonitor
+
+        monitor = RecordingPipelineMonitor()
+        return monitor.check_all_pipelines()

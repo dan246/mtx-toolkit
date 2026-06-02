@@ -92,3 +92,6 @@ recordings/*.flv
 secrets/
 *.pem
 *.key
+
+# Claude
+CLAUDE.md

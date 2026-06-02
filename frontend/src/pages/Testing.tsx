@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Play,
   CheckCircle,
@@ -15,70 +15,52 @@ import {
 } from 'lucide-react'
 import Card from '../components/Card'
 import StatusBadge from '../components/StatusBadge'
-import { healthApi } from '../services/api'
+import { healthApi, testingApi, TestScenario } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
+import { useToast } from '../contexts/ToastContext'
 import type { ProbeResult } from '../types'
 
-interface TestScenario {
-  id: string
-  name: string
-  description: string
-  command: string
-  status: 'ready' | 'running' | 'completed' | 'failed'
-  result?: string
-}
+type SuiteType = 'integration' | 'stress' | 'recovery'
 
 export default function Testing() {
   const { t } = useLanguage()
+  const toast = useToast()
+  const queryClient = useQueryClient()
   const [testUrl, setTestUrl] = useState('')
   const [protocol, setProtocol] = useState('rtsp')
   const [probeResult, setProbeResult] = useState<ProbeResult | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [suiteResults, setSuiteResults] = useState<Record<SuiteType, { success: boolean; message: string }>>(
+    {} as Record<SuiteType, { success: boolean; message: string }>
+  )
 
-  const [testScenarios, setTestScenarios] = useState<TestScenario[]>([
-    {
-      id: 'testsrc',
-      name: 'FFmpeg Test Source',
-      description: 'Generate test pattern stream for validation',
-      command: 'ffmpeg -f lavfi -i testsrc=duration=60:size=1280x720:rate=30 -f rtsp rtsp://localhost:8554/test',
-      status: 'ready',
-    },
-    {
-      id: 'black',
-      name: 'Black Screen Test',
-      description: 'Generate black screen to test detection',
-      command: 'ffmpeg -f lavfi -i color=black:size=1280x720:rate=30 -t 30 -f rtsp rtsp://localhost:8554/black',
-      status: 'ready',
-    },
-    {
-      id: 'silence',
-      name: 'Audio Silence Test',
-      description: 'Test audio silence detection',
-      command: 'ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 30 -f rtsp rtsp://localhost:8554/silent',
-      status: 'ready',
-    },
-    {
-      id: 'lowfps',
-      name: 'Low FPS Test',
-      description: 'Generate low framerate stream',
-      command: 'ffmpeg -f lavfi -i testsrc=duration=60:size=1280x720:rate=5 -f rtsp rtsp://localhost:8554/lowfps',
-      status: 'ready',
-    },
-  ])
-
-  // Integration test states
-  const [runningTest, setRunningTest] = useState<string | null>(null)
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
+  // Real scenarios from the backend (running state reflects live ffmpeg procs).
+  const { data: scenarioData } = useQuery({
+    queryKey: ['test-scenarios'],
+    queryFn: testingApi.listScenarios,
+    refetchInterval: 5000,
+  })
+  const scenarios: TestScenario[] = scenarioData?.scenarios ?? []
 
   const probeMutation = useMutation({
     mutationFn: () => healthApi.probeUrl(testUrl, protocol),
-    onSuccess: (data) => {
-      setProbeResult(data)
-    },
-    onError: (error) => {
-      alert(`探測失敗: ${error}`)
-    },
+    onSuccess: (data) => setProbeResult(data),
+    onError: (error) => toast.error(`${t.messages.probeFailed}: ${error}`),
   })
+
+  const startMutation = useMutation({
+    mutationFn: (id: string) => testingApi.startScenario(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['test-scenarios'] }),
+    onError: (error) => toast.error(`${t.testing.scenarioStartFailed}: ${error}`),
+  })
+
+  const stopMutation = useMutation({
+    mutationFn: (id: string) => testingApi.stopScenario(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['test-scenarios'] }),
+    onError: (error) => toast.error(`${t.testing.scenarioStopFailed}: ${error}`),
+  })
+
+  const [runningSuite, setRunningSuite] = useState<SuiteType | null>(null)
 
   const handleCopyCommand = (scenario: TestScenario) => {
     navigator.clipboard.writeText(scenario.command)
@@ -86,78 +68,54 @@ export default function Testing() {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  const handleStartScenario = (scenarioId: string) => {
-    // Update scenario status to running
-    setTestScenarios(scenarios =>
-      scenarios.map(s =>
-        s.id === scenarioId ? { ...s, status: 'running' as const } : s
-      )
-    )
-
-    // Simulate test execution (in real implementation, this would call backend API)
-    setTimeout(() => {
-      setTestScenarios(scenarios =>
-        scenarios.map(s => {
-          if (s.id === scenarioId) {
-            // Simulate random success/failure
-            const success = Math.random() > 0.3
-            return {
-              ...s,
-              status: success ? 'completed' as const : 'failed' as const,
-              result: success ? 'Test completed successfully' : 'Test failed: Connection timeout'
-            }
-          }
-          return s
-        })
-      )
-    }, 3000)
-  }
-
-  const handleStopScenario = (scenarioId: string) => {
-    setTestScenarios(scenarios =>
-      scenarios.map(s =>
-        s.id === scenarioId ? { ...s, status: 'ready' as const, result: undefined } : s
-      )
-    )
-  }
-
-  const handleRunIntegrationTest = (testType: string) => {
-    setRunningTest(testType)
-
-    // Simulate test execution
-    setTimeout(() => {
-      const success = Math.random() > 0.2
-      setTestResults(prev => ({
-        ...prev,
-        [testType]: {
-          success,
-          message: success
-            ? `${testType} 完成: 所有測試通過`
-            : `${testType} 失敗: 發現 ${Math.floor(Math.random() * 5) + 1} 個錯誤`
-        }
-      }))
-      setRunningTest(null)
-    }, 5000)
+  const runSuite = async (type: SuiteType) => {
+    if (type === 'stress' && !testUrl) {
+      toast.error(t.testing.stressUrlRequired)
+      return
+    }
+    setRunningSuite(type)
+    try {
+      let message = ''
+      let success = false
+      if (type === 'integration') {
+        const r = await testingApi.runIntegration()
+        success = r.success
+        message = `${r.passed}/${r.total} ${t.testing.passed}`
+      } else if (type === 'stress') {
+        const r = await testingApi.runStress(testUrl, protocol)
+        success = r.success
+        message = `${r.succeeded}/${r.concurrency} · ${t.testing.avgLatency} ${r.avg_latency_ms}ms`
+      } else {
+        const r = await testingApi.runRecovery()
+        success = r.success
+        message = `${r.path}: ${r.before} → ${r.after}`
+      }
+      setSuiteResults(prev => ({ ...prev, [type]: { success, message } }))
+      success ? toast.success(`${t.testing.testPassed}: ${message}`) : toast.error(`${t.testing.testFailed}: ${message}`)
+    } catch (error) {
+      setSuiteResults(prev => ({ ...prev, [type]: { success: false, message: String(error) } }))
+      toast.error(`${t.testing.testFailed}: ${error}`)
+    } finally {
+      setRunningSuite(null)
+    }
   }
 
   const getScenarioStatusBadge = (status: TestScenario['status']) => {
     switch (status) {
       case 'running':
         return <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800 flex items-center gap-1">
-          <Loader2 className="w-3 h-3 animate-spin" /> Running
-        </span>
-      case 'completed':
-        return <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800 flex items-center gap-1">
-          <CheckCircle className="w-3 h-3" /> Completed
-        </span>
-      case 'failed':
-        return <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800 flex items-center gap-1">
-          <XCircle className="w-3 h-3" /> Failed
+          <Loader2 className="w-3 h-3 animate-spin" /> {t.testing.running}
         </span>
       default:
-        return <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Ready</span>
+        return <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">{t.testing.ready}</span>
     }
   }
+
+  const suiteCards: { type: SuiteType; title: string; description: string; icon: typeof Play; btnClass: string; label: string }[] = [
+    { type: 'integration', title: t.testing.fullIntegrationTest, description: t.testing.integrationDescription, icon: Play, btnClass: 'bg-green-600 hover:bg-green-700', label: t.testing.runAllTests },
+    { type: 'stress', title: t.testing.stressTest, description: t.testing.stressDescription, icon: Activity, btnClass: 'bg-yellow-600 hover:bg-yellow-700', label: t.testing.runStressTest },
+    { type: 'recovery', title: t.testing.recoveryTest, description: t.testing.recoveryDescription, icon: Wifi, btnClass: 'bg-red-600 hover:bg-red-700', label: t.testing.runRecoveryTest },
+  ]
 
   return (
     <div className="space-y-6">
@@ -300,7 +258,7 @@ export default function Testing() {
       {/* Test Scenarios */}
       <Card title={t.testing.testScenarios} subtitle={t.testing.preConfiguredTestStreams}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {testScenarios.map((scenario) => (
+          {scenarios.map((scenario) => (
             <div
               key={scenario.id}
               className="p-4 border border-gray-200 rounded-lg hover:border-primary-300 transition-colors"
@@ -317,27 +275,21 @@ export default function Testing() {
                 {scenario.command}
               </div>
 
-              {scenario.result && (
-                <div className={`mt-2 p-2 rounded text-sm ${
-                  scenario.status === 'completed' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                }`}>
-                  {scenario.result}
-                </div>
-              )}
-
               <div className="mt-3 flex gap-2">
                 {scenario.status === 'running' ? (
                   <button
-                    onClick={() => handleStopScenario(scenario.id)}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                    onClick={() => stopMutation.mutate(scenario.id)}
+                    disabled={stopMutation.isPending}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
                   >
                     <Square className="w-3 h-3" />
-                    Stop
+                    {t.testing.stop}
                   </button>
                 ) : (
                   <button
-                    onClick={() => handleStartScenario(scenario.id)}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-primary-600 text-white rounded hover:bg-primary-700"
+                    onClick={() => startMutation.mutate(scenario.id)}
+                    disabled={startMutation.isPending}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
                   >
                     <Play className="w-3 h-3" />
                     {t.testing.start}
@@ -352,7 +304,7 @@ export default function Testing() {
                   ) : (
                     <Copy className="w-3 h-3" />
                   )}
-                  {copiedId === scenario.id ? 'Copied!' : t.testing.copy}
+                  {copiedId === scenario.id ? t.streams.copied : t.testing.copy}
                 </button>
               </div>
             </div>
@@ -363,77 +315,27 @@ export default function Testing() {
       {/* Integration Test Suite */}
       <Card title={t.testing.integrationTestSuite} subtitle={t.testing.automatedTestRunners}>
         <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div className="flex-1">
-              <h4 className="font-medium text-gray-900">{t.testing.fullIntegrationTest}</h4>
-              <p className="text-sm text-gray-500">Run all tests: stream detection, remediation, recording</p>
-              {testResults['integration'] && (
-                <p className={`text-sm mt-1 ${testResults['integration'].success ? 'text-green-600' : 'text-red-600'}`}>
-                  {testResults['integration'].message}
-                </p>
-              )}
+          {suiteCards.map(({ type, title, description, icon: Icon, btnClass, label }) => (
+            <div key={type} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex-1">
+                <h4 className="font-medium text-gray-900">{title}</h4>
+                <p className="text-sm text-gray-500">{description}</p>
+                {suiteResults[type] && (
+                  <p className={`text-sm mt-1 ${suiteResults[type].success ? 'text-green-600' : 'text-red-600'}`}>
+                    {suiteResults[type].message}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => runSuite(type)}
+                disabled={runningSuite !== null}
+                className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg disabled:opacity-50 ${btnClass}`}
+              >
+                {runningSuite === type ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
+                {label}
+              </button>
             </div>
-            <button
-              onClick={() => handleRunIntegrationTest('integration')}
-              disabled={runningTest !== null}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-            >
-              {runningTest === 'integration' ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Play className="w-4 h-4" />
-              )}
-              {t.testing.runAllTests}
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div className="flex-1">
-              <h4 className="font-medium text-gray-900">{t.testing.stressTest}</h4>
-              <p className="text-sm text-gray-500">Simulate high load with multiple concurrent streams</p>
-              {testResults['stress'] && (
-                <p className={`text-sm mt-1 ${testResults['stress'].success ? 'text-green-600' : 'text-red-600'}`}>
-                  {testResults['stress'].message}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => handleRunIntegrationTest('stress')}
-              disabled={runningTest !== null}
-              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50"
-            >
-              {runningTest === 'stress' ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Activity className="w-4 h-4" />
-              )}
-              {t.testing.runStressTest}
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div className="flex-1">
-              <h4 className="font-medium text-gray-900">{t.testing.faultInjection}</h4>
-              <p className="text-sm text-gray-500">Test network issues: packet loss, latency, disconnects</p>
-              {testResults['fault'] && (
-                <p className={`text-sm mt-1 ${testResults['fault'].success ? 'text-green-600' : 'text-red-600'}`}>
-                  {testResults['fault'].message}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => handleRunIntegrationTest('fault')}
-              disabled={runningTest !== null}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-            >
-              {runningTest === 'fault' ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Wifi className="w-4 h-4" />
-              )}
-              {t.testing.injectFaults}
-            </button>
-          </div>
+          ))}
         </div>
       </Card>
     </div>

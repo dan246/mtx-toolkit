@@ -16,11 +16,15 @@ from flask import current_app
 
 from app import db
 from app.models import EventType, Stream, StreamEvent
+from app.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class RemediationAction(str, Enum):
     """Types of remediation actions."""
 
+    SOFT_RESET = "soft_reset"
     RECONNECT = "reconnect"
     RESTART_SIDECAR = "restart_sidecar"
     RESTART_PATH = "restart_path"
@@ -58,7 +62,8 @@ class AutoRemediation:
     Auto-remediation service with tiered retry strategy.
 
     Levels:
-    1. Reconnect stream source
+    0. Soft reset (flush buffer / re-pull source)
+    1. Reconnect / Protocol-aware revival
     2. Restart sidecar (ffmpeg/gstreamer process)
     3. Restart specific path in MediaMTX
     4. Restart entire MediaMTX (last resort)
@@ -98,18 +103,43 @@ class AutoRemediation:
         return min(delay, max_delay)
 
     def remediate_stream(
-        self, stream: Stream, force_level: int = None
+        self,
+        stream: Stream,
+        force_level: int = None,
+        trigger_source: str = "health_check",
     ) -> Dict[str, Any]:
         """
         Perform remediation on a stream.
         Tries increasingly aggressive actions until success.
+
+        Args:
+            stream: The stream to remediate
+            force_level: Force starting at a specific level
+            trigger_source: What triggered this ("liveness", "health_check", "manual")
         """
+        # Activate fallback if configured
+        fallback_activated = False
+        if stream.fallback_type and stream.fallback_type != "none":
+            try:
+                from app.services.fallback_manager import FallbackManager
+
+                fallback_mgr = FallbackManager()
+                fb_result = fallback_mgr.activate_fallback(stream)
+                fallback_activated = fb_result.get("success", False)
+            except Exception as exc:
+                logger.warning(
+                    "fallback_activation_failed",
+                    stream_id=stream.id,
+                    path=stream.path,
+                    error=str(exc),
+                )
+
         # Create start event
         start_event = StreamEvent(
             stream_id=stream.id,
             event_type=EventType.REMEDIATION_STARTED.value,
             severity="info",
-            message=f"Starting remediation for stream {stream.path}",
+            message=f"Starting remediation for stream {stream.path} (trigger: {trigger_source})",
         )
         db.session.add(start_event)
 
@@ -117,13 +147,15 @@ class AutoRemediation:
         success = False
 
         # Determine starting level
-        start_level = (
-            force_level
-            if force_level is not None
-            else self._determine_start_level(stream)
-        )
+        if force_level is not None:
+            start_level = force_level
+        elif trigger_source == "liveness":
+            start_level = 0  # Liveness triggers start at SOFT_RESET
+        else:
+            start_level = self._determine_start_level(stream)
 
         actions = [
+            (0, RemediationAction.SOFT_RESET, self._try_soft_reset),
             (1, RemediationAction.RECONNECT, self._try_reconnect),
             (2, RemediationAction.RESTART_SIDECAR, self._try_restart_sidecar),
             (3, RemediationAction.RESTART_PATH, self._try_restart_path),
@@ -142,9 +174,11 @@ class AutoRemediation:
                     success = True
                     break
 
-                # Wait before next attempt
-                delay = self.calculate_backoff(attempt)
-                time.sleep(delay)
+                # Wait before next attempt (skip after the final attempt so we
+                # don't burn backoff time that risks the Celery task time limit)
+                if attempt < self.config["max_attempts"] - 1:
+                    delay = self.calculate_backoff(attempt)
+                    time.sleep(delay)
 
             if success:
                 break
@@ -152,6 +186,23 @@ class AutoRemediation:
         # Update stream
         stream.remediation_count += 1
         stream.last_remediation = datetime.utcnow()
+
+        # Deactivate fallback if remediation succeeded
+        if fallback_activated:
+            try:
+                from app.services.fallback_manager import FallbackManager
+
+                fallback_mgr = FallbackManager()
+                if success:
+                    fallback_mgr.deactivate_fallback(stream)
+                # On failure, keep fallback active
+            except Exception as exc:
+                logger.warning(
+                    "fallback_deactivation_failed",
+                    stream_id=stream.id,
+                    path=stream.path,
+                    error=str(exc),
+                )
 
         # Create result event
         end_event = StreamEvent(
@@ -175,6 +226,8 @@ class AutoRemediation:
             "success": success,
             "stream_id": stream.id,
             "stream_path": stream.path,
+            "trigger_source": trigger_source,
+            "fallback_activated": fallback_activated,
             "attempts": results,
             "total_attempts": len(results),
         }
@@ -192,10 +245,105 @@ class AutoRemediation:
             return 3  # Skip to restart path
         elif recent_remediations >= 2:
             return 2  # Skip to restart sidecar
-        return 1  # Start from reconnect
+        return 0  # Start from soft reset
+
+    def _try_soft_reset(self, stream: Stream, attempt: int) -> RemediationResult:
+        """Level 0: Soft reset - flush buffer / re-pull source via MediaMTX API."""
+        try:
+            node = stream.node
+            api_url = node.api_url
+
+            # Create soft reset event
+            event = StreamEvent(
+                stream_id=stream.id,
+                event_type=EventType.SOFT_RESET_STARTED.value,
+                severity="info",
+                message=f"Soft reset attempt {attempt + 1} for {stream.path}",
+            )
+            db.session.add(event)
+
+            # Get current path config
+            response = httpx.get(
+                f"{api_url}/v3/config/paths/get/{stream.path}", timeout=10
+            )
+            if response.status_code != 200:
+                result_event = StreamEvent(
+                    stream_id=stream.id,
+                    event_type=EventType.SOFT_RESET_FAILED.value,
+                    severity="warning",
+                    message=f"Soft reset failed: could not get config (HTTP {response.status_code})",
+                )
+                db.session.add(result_event)
+                return RemediationResult(
+                    success=False,
+                    action=RemediationAction.SOFT_RESET,
+                    message=f"Failed to get path config: HTTP {response.status_code}",
+                )
+
+            config = response.json()
+            source = config.get("source", "")
+
+            if source:
+                # Patch source to empty then back to force re-pull
+                httpx.patch(
+                    f"{api_url}/v3/config/paths/patch/{stream.path}",
+                    json={"source": ""},
+                    timeout=10,
+                )
+                time.sleep(1)
+                httpx.patch(
+                    f"{api_url}/v3/config/paths/patch/{stream.path}",
+                    json={"source": source},
+                    timeout=10,
+                )
+                time.sleep(2)
+
+                result_event = StreamEvent(
+                    stream_id=stream.id,
+                    event_type=EventType.SOFT_RESET_SUCCESS.value,
+                    severity="info",
+                    message=f"Soft reset succeeded on attempt {attempt + 1}",
+                )
+                db.session.add(result_event)
+
+                return RemediationResult(
+                    success=True,
+                    action=RemediationAction.SOFT_RESET,
+                    message=f"Soft reset succeeded on attempt {attempt + 1}",
+                )
+
+            return RemediationResult(
+                success=False,
+                action=RemediationAction.SOFT_RESET,
+                message="No source configured, cannot soft reset",
+            )
+
+        except Exception as e:
+            return RemediationResult(
+                success=False,
+                action=RemediationAction.SOFT_RESET,
+                message=f"Soft reset failed: {str(e)}",
+            )
 
     def _try_reconnect(self, stream: Stream, attempt: int) -> RemediationResult:
-        """Try to reconnect the stream source by kicking all RTSP sessions on this path."""
+        """Level 1: Try protocol-aware revival, fall back to generic reconnect."""
+        # Try protocol-aware revival first
+        try:
+            from app.services.protocol_revival import ProtocolRevivalManager
+
+            revival_mgr = ProtocolRevivalManager()
+            result = revival_mgr.revive_path(stream)
+            if result.get("success"):
+                return RemediationResult(
+                    success=True,
+                    action=RemediationAction.RECONNECT,
+                    message=f"Protocol revival succeeded: {result.get('message', '')}",
+                    details=result,
+                )
+        except Exception:
+            pass
+
+        # Fall back to generic reconnect (kick sessions)
         try:
             node = stream.node
             api_url = node.api_url

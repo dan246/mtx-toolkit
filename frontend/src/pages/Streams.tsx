@@ -13,14 +13,19 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
+  RotateCcw,
+  Zap,
 } from 'lucide-react'
 import Card from '../components/Card'
 import Modal from '../components/Modal'
 import StatusBadge from '../components/StatusBadge'
+import LivenessBadge from '../components/LivenessBadge'
+import FallbackIndicator from '../components/FallbackIndicator'
 import StreamViewersModal from '../components/StreamViewersModal'
 import { streamsApi, healthApi, fleetApi, sessionsApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
-import type { Stream, StreamStatus, MediaMTXNode } from '../types'
+import { useToast } from '../contexts/ToastContext'
+import type { Stream, StreamStatus, MediaMTXNode, LivenessClassification } from '../types'
 
 interface StreamFormData {
   path: string
@@ -38,8 +43,97 @@ const initialFormData: StreamFormData = {
   auto_remediate: true,
 }
 
+// Shared field set for both the Add and Edit stream modals. idSuffix keeps the
+// checkbox id unique when both modals exist in the DOM.
+function StreamFormFields({
+  formData,
+  setFormData,
+  nodes,
+  idSuffix,
+}: {
+  formData: StreamFormData
+  setFormData: (data: StreamFormData) => void
+  nodes: MediaMTXNode[]
+  idSuffix: string
+}) {
+  const { t } = useLanguage()
+  const inputClass =
+    'w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500'
+  return (
+    <>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          {t.streams.streamPath} *
+        </label>
+        <input
+          type="text"
+          value={formData.path}
+          onChange={(e) => setFormData({ ...formData, path: e.target.value })}
+          required
+          placeholder="cam1"
+          className={inputClass}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          {t.streams.streamName}
+        </label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          placeholder="Camera 1"
+          className={inputClass}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          {t.streams.sourceUrl}
+        </label>
+        <input
+          type="text"
+          value={formData.source_url}
+          onChange={(e) => setFormData({ ...formData, source_url: e.target.value })}
+          placeholder="rtsp://user:pass@192.168.1.100:554/stream"
+          className={inputClass}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          {t.streams.selectNode}
+        </label>
+        <select
+          value={formData.node_id || ''}
+          onChange={(e) => setFormData({ ...formData, node_id: e.target.value ? Number(e.target.value) : null })}
+          className={inputClass}
+        >
+          <option value="">-- {t.streams.selectNode} --</option>
+          {nodes.map((node: MediaMTXNode) => (
+            <option key={node.id} value={node.id}>
+              {node.name} ({node.environment})
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          id={`auto_remediate_${idSuffix}`}
+          checked={formData.auto_remediate}
+          onChange={(e) => setFormData({ ...formData, auto_remediate: e.target.checked })}
+          className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+        />
+        <label htmlFor={`auto_remediate_${idSuffix}`} className="text-sm text-gray-700">
+          {t.streams.autoRemediate}
+        </label>
+      </div>
+    </>
+  )
+}
+
 export default function Streams() {
   const { t } = useLanguage()
+  const toast = useToast()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StreamStatus | ''>('')
@@ -106,10 +200,10 @@ export default function Streams() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['streams'] })
-      alert(`Probe 完成: ${data.status} - FPS: ${data.fps || 'N/A'}`)
+      toast.success(`${t.messages.probeComplete}: ${data.status} - FPS: ${data.fps || 'N/A'}`)
     },
     onError: (error) => {
-      alert(`Probe 失敗: ${error}`)
+      toast.error(`${t.messages.probeFailed}: ${error}`)
     },
     onSettled: () => {
       setProbingId(null)
@@ -123,13 +217,41 @@ export default function Streams() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['streams'] })
-      alert(`修復${data.success ? '成功' : '失敗'}: ${data.total_attempts} 次嘗試`)
+      data.success
+        ? toast.success(`${t.messages.remediateComplete}: ${data.total_attempts} ${t.messages.attempts}`)
+        : toast.error(`${t.messages.remediateFailed}: ${data.total_attempts} ${t.messages.attempts}`)
     },
     onError: (error) => {
-      alert(`修復失敗: ${error}`)
+      toast.error(`${t.messages.remediateFailed}: ${error}`)
     },
     onSettled: () => {
       setRemediatingId(null)
+    },
+  })
+
+  const softResetMutation = useMutation({
+    mutationFn: (streamId: number) => streamsApi.softReset(streamId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['streams'] })
+      data.success
+        ? toast.success(`${t.streams.softReset} ${t.common.success}`)
+        : toast.error(`${t.streams.softReset} ${t.common.error}`)
+    },
+    onError: (error) => {
+      toast.error(`${t.streams.softReset} ${t.common.error}: ${error}`)
+    },
+  })
+
+  const reviveMutation = useMutation({
+    mutationFn: (streamId: number) => streamsApi.revive(streamId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['streams'] })
+      data.success
+        ? toast.success(`${t.streams.protocolRevival} ${t.common.success}: ${data.message || ''}`)
+        : toast.error(`${t.streams.protocolRevival} ${t.common.error}: ${data.message || ''}`)
+    },
+    onError: (error) => {
+      toast.error(`${t.streams.protocolRevival} ${t.common.error}: ${error}`)
     },
   })
 
@@ -142,10 +264,10 @@ export default function Streams() {
       queryClient.invalidateQueries({ queryKey: ['streams'] })
       setIsAddModalOpen(false)
       setFormData(initialFormData)
-      alert(t.streams.streamAdded)
+      toast.success(t.streams.streamAdded)
     },
     onError: (error) => {
-      alert(`新增失敗: ${error}`)
+      toast.error(`${t.messages.addFailed}: ${error}`)
     },
   })
 
@@ -159,10 +281,10 @@ export default function Streams() {
       setIsEditModalOpen(false)
       setSelectedStream(null)
       setFormData(initialFormData)
-      alert(t.streams.streamUpdated)
+      toast.success(t.streams.streamUpdated)
     },
     onError: (error) => {
-      alert(`更新失敗: ${error}`)
+      toast.error(`${t.messages.updateFailed}: ${error}`)
     },
   })
 
@@ -172,10 +294,10 @@ export default function Streams() {
       queryClient.invalidateQueries({ queryKey: ['streams'] })
       setIsDeleteModalOpen(false)
       setSelectedStream(null)
-      alert(t.streams.streamDeleted)
+      toast.success(t.streams.streamDeleted)
     },
     onError: (error) => {
-      alert(`刪除失敗: ${error}`)
+      toast.error(`${t.messages.deleteFailed}: ${error}`)
     },
   })
 
@@ -316,7 +438,15 @@ export default function Streams() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <StatusBadge status={stream.status} />
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={stream.status} />
+                      {stream.liveness_classification && stream.liveness_classification !== 'unknown' && stream.liveness_classification !== 'live' && (
+                        <LivenessBadge classification={stream.liveness_classification as LivenessClassification} />
+                      )}
+                      {stream.fallback_active && (
+                        <FallbackIndicator fallbackType={stream.fallback_type} />
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <button
@@ -347,7 +477,7 @@ export default function Streams() {
                         onClick={() => probeMutation.mutate(stream.id)}
                         disabled={probingId === stream.id}
                         className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg disabled:opacity-50"
-                        title="Probe Stream"
+                        title={t.streams.probeStream}
                       >
                         {probingId === stream.id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -355,12 +485,36 @@ export default function Streams() {
                           <Play className="w-4 h-4" />
                         )}
                       </button>
+                      <button
+                        onClick={() => softResetMutation.mutate(stream.id)}
+                        disabled={softResetMutation.isPending}
+                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
+                        title={t.streams.softReset}
+                      >
+                        {softResetMutation.isPending && softResetMutation.variables === stream.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => reviveMutation.mutate(stream.id)}
+                        disabled={reviveMutation.isPending}
+                        className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg disabled:opacity-50"
+                        title={t.streams.protocolRevival}
+                      >
+                        {reviveMutation.isPending && reviveMutation.variables === stream.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Zap className="w-4 h-4" />
+                        )}
+                      </button>
                       {stream.auto_remediate && (
                         <button
                           onClick={() => remediateMutation.mutate(stream.id)}
                           disabled={remediatingId === stream.id}
                           className="p-2 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg disabled:opacity-50"
-                          title="Remediate"
+                          title={t.streams.remediate}
                         >
                           {remediatingId === stream.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -372,14 +526,14 @@ export default function Streams() {
                       <button
                         onClick={() => handleOpenEditModal(stream)}
                         className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
-                        title="Settings"
+                        title={t.common.settings}
                       >
                         <Settings className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleOpenDeleteModal(stream)}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                        title="Delete"
+                        title={t.common.delete}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -432,72 +586,12 @@ export default function Streams() {
         title={t.streams.addStream}
       >
         <form onSubmit={handleSubmitAdd} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.streams.streamPath} *
-            </label>
-            <input
-              type="text"
-              value={formData.path}
-              onChange={(e) => setFormData({ ...formData, path: e.target.value })}
-              required
-              placeholder="cam1"
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.streams.streamName}
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="Camera 1"
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.streams.sourceUrl}
-            </label>
-            <input
-              type="text"
-              value={formData.source_url}
-              onChange={(e) => setFormData({ ...formData, source_url: e.target.value })}
-              placeholder="rtsp://user:pass@192.168.1.100:554/stream"
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.streams.selectNode}
-            </label>
-            <select
-              value={formData.node_id || ''}
-              onChange={(e) => setFormData({ ...formData, node_id: e.target.value ? Number(e.target.value) : null })}
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="">-- {t.streams.selectNode} --</option>
-              {nodesData?.nodes?.map((node: MediaMTXNode) => (
-                <option key={node.id} value={node.id}>
-                  {node.name} ({node.environment})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="auto_remediate"
-              checked={formData.auto_remediate}
-              onChange={(e) => setFormData({ ...formData, auto_remediate: e.target.checked })}
-              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-            />
-            <label htmlFor="auto_remediate" className="text-sm text-gray-700">
-              {t.streams.autoRemediate}
-            </label>
-          </div>
+          <StreamFormFields
+            formData={formData}
+            setFormData={setFormData}
+            nodes={nodesData?.nodes ?? []}
+            idSuffix="add"
+          />
           <div className="flex justify-end gap-3 pt-4">
             <button
               type="button"
@@ -525,69 +619,12 @@ export default function Streams() {
         title={t.streams.editStream}
       >
         <form onSubmit={handleSubmitEdit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.streams.streamPath} *
-            </label>
-            <input
-              type="text"
-              value={formData.path}
-              onChange={(e) => setFormData({ ...formData, path: e.target.value })}
-              required
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.streams.streamName}
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.streams.sourceUrl}
-            </label>
-            <input
-              type="text"
-              value={formData.source_url}
-              onChange={(e) => setFormData({ ...formData, source_url: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t.streams.selectNode}
-            </label>
-            <select
-              value={formData.node_id || ''}
-              onChange={(e) => setFormData({ ...formData, node_id: e.target.value ? Number(e.target.value) : null })}
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="">-- {t.streams.selectNode} --</option>
-              {nodesData?.nodes?.map((node: MediaMTXNode) => (
-                <option key={node.id} value={node.id}>
-                  {node.name} ({node.environment})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="auto_remediate_edit"
-              checked={formData.auto_remediate}
-              onChange={(e) => setFormData({ ...formData, auto_remediate: e.target.checked })}
-              className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-            />
-            <label htmlFor="auto_remediate_edit" className="text-sm text-gray-700">
-              {t.streams.autoRemediate}
-            </label>
-          </div>
+          <StreamFormFields
+            formData={formData}
+            setFormData={setFormData}
+            nodes={nodesData?.nodes ?? []}
+            idSuffix="edit"
+          />
           <div className="flex justify-end gap-3 pt-4">
             <button
               type="button"

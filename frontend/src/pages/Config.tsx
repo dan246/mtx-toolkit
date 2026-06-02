@@ -14,14 +14,16 @@ import {
 import Card from '../components/Card'
 import { configApi, fleetApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
-import type { ConfigSnapshot } from '../types'
+import { useToast } from '../contexts/ToastContext'
+import type { ConfigSnapshot, MediaMTXNode, PlanResult } from '../types'
 
 export default function Config() {
   const { t } = useLanguage()
+  const toast = useToast()
   const queryClient = useQueryClient()
   const [configYaml, setConfigYaml] = useState('')
   const [selectedNode, setSelectedNode] = useState<number | null>(null)
-  const [planResult, setPlanResult] = useState<any>(null)
+  const [planResult, setPlanResult] = useState<PlanResult | null>(null)
 
   const { data: nodes } = useQuery({
     queryKey: ['fleet-nodes'],
@@ -42,7 +44,7 @@ export default function Config() {
       setPlanResult(data)
     },
     onError: (error) => {
-      alert(`Plan 失敗: ${error}`)
+      toast.error(`${t.messages.planFailed}: ${error}`)
     },
   })
 
@@ -56,10 +58,10 @@ export default function Config() {
       queryClient.invalidateQueries({ queryKey: ['config-snapshots'] })
       setPlanResult(null)
       setConfigYaml('')
-      alert(data.success ? '配置套用成功！' : `配置套用失敗: ${data.error}`)
+      data.success ? toast.success(t.messages.applySuccess) : toast.error(`${t.messages.applyFailed}: ${data.error}`)
     },
     onError: (error) => {
-      alert(`Apply 失敗: ${error}`)
+      toast.error(`${t.messages.applyFailed}: ${error}`)
     },
   })
 
@@ -67,10 +69,10 @@ export default function Config() {
     mutationFn: (snapshotId: number) => configApi.rollback(snapshotId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['config-snapshots'] })
-      alert(data.success ? '回滾成功！' : `回滾失敗: ${data.error}`)
+      data.success ? toast.success(t.messages.rollbackSuccess) : toast.error(`${t.messages.rollbackFailed}: ${data.error}`)
     },
     onError: (error) => {
-      alert(`回滾失敗: ${error}`)
+      toast.error(`${t.messages.rollbackFailed}: ${error}`)
     },
   })
 
@@ -100,7 +102,7 @@ export default function Config() {
                   className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   <option value="">{t.config.allNodes}</option>
-                  {nodes?.nodes?.map((node: any) => (
+                  {nodes?.nodes?.map((node: MediaMTXNode) => (
                     <option key={node.id} value={node.id}>
                       {node.name} ({node.environment})
                     </option>
@@ -186,16 +188,16 @@ paths:
                       {planResult.validation?.valid ? t.config.validationPassed : t.config.validationFailed}
                     </span>
                   </div>
-                  {planResult.validation?.errors?.length > 0 && (
+                  {(planResult.validation?.errors?.length ?? 0) > 0 && (
                     <ul className="list-disc list-inside text-sm text-red-600">
-                      {planResult.validation.errors.map((err: string, i: number) => (
+                      {planResult.validation?.errors?.map((err: string, i: number) => (
                         <li key={i}>{err}</li>
                       ))}
                     </ul>
                   )}
-                  {planResult.validation?.warnings?.length > 0 && (
+                  {(planResult.validation?.warnings?.length ?? 0) > 0 && (
                     <ul className="list-disc list-inside text-sm text-yellow-600 mt-2">
-                      {planResult.validation.warnings.map((warn: string, i: number) => (
+                      {planResult.validation?.warnings?.map((warn: string, i: number) => (
                         <li key={i}>{warn}</li>
                       ))}
                     </ul>

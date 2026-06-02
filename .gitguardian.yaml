@@ -1,0 +1,26 @@
+# GitGuardian / ggshield configuration
+# https://docs.gitguardian.com/ggshield-docs/configuration
+#
+# These ignores cover NON-secrets only: test fixtures and template placeholders.
+# Real secrets live in the gitignored .env and are never committed.
+
+version: 2
+
+secret:
+  ignored-paths:
+    # Test fixtures use throwaway passwords (e.g. "admin", "s3cret") purely to
+    # exercise hashing/login flows — not real credentials.
+    - "backend/tests/**"
+    # Environment template: documents variable names with placeholder/default
+    # values (e.g. the bootstrap admin default). The real .env is gitignored.
+    - ".env.example"
+
+  ignored-matches:
+    # Local-dev-only Postgres password, hard-coded in docker-compose.yml for the
+    # internal compose network. Not used in any real deployment.
+    - name: "local dev postgres password (compose internal network)"
+      match: "mtx_password"
+    # Built-in dev fallback signing key. Production/staging refuse to start on
+    # this value (see app/__init__.py _validate_config), so it is inert.
+    - name: "dev SECRET_KEY fallback (rejected in prod/staging)"
+      match: "dev-secret-key-change-in-production"

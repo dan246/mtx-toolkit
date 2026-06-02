@@ -1,6 +1,18 @@
 // Stream types
 export type StreamStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
 
+// Phase 1: Liveness
+export type LivenessClassification = 'live' | 'frozen' | 'black_screen' | 'stale' | 'silent' | 'unknown'
+
+// Phase 2: Source Protocol
+export type SourceProtocol = 'rtsp' | 'rtmp' | 'whep' | 'whip' | 'hls' | 'srt' | 'unknown'
+
+// Phase 3: Fallback
+export type FallbackType = 'color_bars' | 'custom_image' | 'last_frame' | 'none'
+
+// Phase 5: Pipeline
+export type PipelineStatus = 'healthy' | 'warning' | 'critical' | 'unknown'
+
 export interface Stream {
   id: number
   node_id: number
@@ -20,6 +32,20 @@ export interface Stream {
   last_check: string | null
   created_at: string
   updated_at: string
+  // Phase 1: Liveness
+  liveness_classification?: LivenessClassification
+  liveness_last_check?: string | null
+  consecutive_freeze_checks?: number
+  freeze_started_at?: string | null
+  // Phase 2: Source Protocol
+  source_protocol?: SourceProtocol
+  // Phase 3: Fallback
+  fallback_type?: FallbackType
+  fallback_active?: boolean
+  fallback_activated_at?: string | null
+  // Phase 5: Pipeline
+  recording_pipeline_status?: PipelineStatus
+  recording_avg_write_latency_ms?: number | null
 }
 
 // Node types
@@ -35,6 +61,20 @@ export interface MediaMTXNode {
   healthy_streams: number
   degraded_streams: number
   unhealthy_streams: number
+}
+
+// Config plan/apply result
+export interface PlanResult {
+  can_apply?: boolean
+  validation?: {
+    valid?: boolean
+    errors?: string[]
+    warnings?: string[]
+  }
+  diff?: {
+    has_changes?: boolean
+    unified_diff?: string
+  }
 }
 
 // Event types
@@ -183,6 +223,89 @@ export interface SessionsResponse {
     protocol: string
     error: string
   }>
+}
+
+// Phase 1: Liveness types
+export interface LivenessStatus {
+  id: number
+  path: string
+  name: string | null
+  status: StreamStatus
+  liveness_classification: LivenessClassification
+  liveness_last_check: string | null
+  consecutive_freeze_checks: number
+  freeze_started_at: string | null
+}
+
+export interface LivenessProbeHistory {
+  id: number
+  classification: LivenessClassification
+  pts_value: number | null
+  pts_delta: number | null
+  frame_hash_changed: boolean | null
+  brightness: number | null
+  audio_rms: number | null
+  keyframe_present: boolean | null
+  probe_duration_ms: number | null
+  created_at: string
+}
+
+// Phase 3: Fallback types
+export interface FallbackStatus {
+  stream_id: number
+  fallback_type: FallbackType
+  fallback_active: boolean
+  fallback_activated_at: string | null
+  fallback_image_path: string | null
+}
+
+// Phase 4: Playback types
+export interface PlaybackReport {
+  id: number
+  stream_id: number
+  client_id: string | null
+  client_ip: string | null
+  stall_count: number
+  stall_duration_ms: number
+  buffer_underrun_count: number
+  frames_decoded: number | null
+  frames_dropped: number | null
+  current_level: number | null
+  recovery_action: string | null
+  error_type: string | null
+  created_at: string
+}
+
+export interface PlaybackHealthSummary {
+  total_reports: number
+  total_stalls: number
+  total_frames_dropped: number
+  total_frames_decoded: number
+  drop_rate: number
+  recovery_actions: Record<string, number>
+}
+
+export interface PlaybackIssue {
+  type: 'stall' | 'buffer_underrun' | 'frame_drop'
+  duration_ms?: number
+  action: 'seek_nudge' | 'level_switch' | 'full_reload'
+}
+
+// Phase 5: Pipeline types
+export interface PipelineMetrics {
+  id: number
+  segment_write_duration_ms: number | null
+  segment_size_bytes: number | null
+  disk_io_latency_ms: number | null
+  segment_gap_seconds: number | null
+  created_at: string
+}
+
+export interface PipelineDashboard {
+  total_recording_streams: number
+  by_status: Record<string, number>
+  avg_write_latency_ms: number | null
+  recent_gaps: number
 }
 
 // API response types

@@ -5,6 +5,8 @@ IP blacklist management for blocking viewers.
 
 from flask import Blueprint, jsonify, request
 
+from app.utils.auth import current_username
+
 blacklist_bp = Blueprint("blacklist", __name__)
 
 
@@ -74,7 +76,7 @@ def block_ip():
     result = manager.block_ip(
         ip_address=ip_address,
         reason=data.get("reason"),
-        blocked_by=data.get("blocked_by", "manual"),
+        blocked_by=data.get("blocked_by") or current_username("manual"),
         duration=data.get("duration", "1h"),
         path_pattern=data.get("path_pattern"),
         node_id=data.get("node_id"),

@@ -20,12 +20,15 @@ import {
 import Card from '../components/Card'
 import StatCard from '../components/StatCard'
 import Modal from '../components/Modal'
-import { recordingsApi, fleetApi } from '../services/api'
+import PipelineHealthBar from '../components/PipelineHealthBar'
+import { recordingsApi, fleetApi, pipelineApi } from '../services/api'
 import { useLanguage } from '../i18n/LanguageContext'
-import type { Recording, MediaMTXNode } from '../types'
+import { useToast } from '../contexts/ToastContext'
+import type { Recording, MediaMTXNode, PipelineDashboard, PipelineStatus } from '../types'
 
 export default function Recordings() {
   const { t } = useLanguage()
+  const toast = useToast()
   const queryClient = useQueryClient()
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -71,6 +74,12 @@ export default function Recordings() {
     queryFn: () => fleetApi.listNodes(),
   })
 
+  const { data: pipelineData } = useQuery<PipelineDashboard>({
+    queryKey: ['pipeline-status'],
+    queryFn: pipelineApi.getStatus,
+    refetchInterval: 30000,
+  })
+
   const archiveMutation = useMutation({
     mutationFn: (id: number) => {
       setArchivingId(id)
@@ -78,10 +87,10 @@ export default function Recordings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recordings'] })
-      alert('歸檔成功！')
+      toast.success(t.messages.archiveSuccess)
     },
     onError: (error) => {
-      alert(`歸檔失敗: ${error}`)
+      toast.error(`${t.messages.archiveFailed}: ${error}`)
     },
     onSettled: () => {
       setArchivingId(null)
@@ -93,10 +102,10 @@ export default function Recordings() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['recordings'] })
       queryClient.invalidateQueries({ queryKey: ['retention-status'] })
-      alert(`清理完成！刪除了 ${data.deleted_count || 0} 個檔案`)
+      toast.success(`${t.messages.cleanupComplete}: ${data.deleted_count || 0} ${t.messages.filesDeleted}`)
     },
     onError: (error) => {
-      alert(`清理失敗: ${error}`)
+      toast.error(`${t.messages.cleanupFailed}: ${error}`)
     },
   })
 
@@ -109,7 +118,7 @@ export default function Recordings() {
       queryClient.invalidateQueries({ queryKey: ['retention-status'] })
     },
     onError: (error) => {
-      alert(`${t.recordings.scanFailed}: ${error}`)
+      toast.error(`${t.recordings.scanFailed}: ${error}`)
     },
   })
 
@@ -154,7 +163,7 @@ export default function Recordings() {
       const data = await recordingsApi.getPlaybackUrl(recording.id)
       setPlaybackUrl(data.playback_url || `/api/recordings/${recording.id}/stream`)
     } catch (error) {
-      alert(`無法取得播放連結: ${error}`)
+      toast.error(`${t.messages.playbackUrlFailed}: ${error}`)
       setIsPlayerOpen(false)
     } finally {
       setLoadingPlayback(false)
@@ -176,9 +185,9 @@ export default function Recordings() {
       link.click()
       document.body.removeChild(link)
 
-      alert('下載已開始')
+      toast.info(t.messages.downloadStarted)
     } catch (error) {
-      alert(`下載失敗: ${error}`)
+      toast.error(`${t.messages.downloadFailed}: ${error}`)
     } finally {
       setDownloadingId(null)
     }
@@ -269,6 +278,46 @@ export default function Recordings() {
           color="default"
         />
       </div>
+
+      {/* Pipeline Health Summary */}
+      {pipelineData && pipelineData.total_recording_streams > 0 && (
+        <Card title={t.pipeline.recordingPipelineHealth}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {pipelineData.by_status && Object.entries(pipelineData.by_status).map(([status, count]) => {
+              const pipelineKeyMap: Record<string, keyof typeof t.pipeline> = {
+                healthy: 'healthy', warning: 'warning', critical: 'critical', unknown: 'unknown',
+              }
+              return (
+                <div key={status} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <span className="text-sm text-gray-600">{t.pipeline[pipelineKeyMap[status] || 'unknown']}</span>
+                  <span className={`text-sm font-semibold ${
+                    status === 'healthy' ? 'text-green-600' :
+                    status === 'warning' ? 'text-yellow-600' :
+                    status === 'critical' ? 'text-red-600' :
+                    'text-gray-400'
+                  }`}>{count as number}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-4 flex items-center gap-6 text-sm text-gray-600">
+            <span>{t.pipeline.avgWriteLatency}: <strong>{pipelineData.avg_write_latency_ms != null ? `${pipelineData.avg_write_latency_ms.toFixed(0)}ms` : '-'}</strong></span>
+            <span>{t.pipeline.recentGaps}: <strong className={pipelineData.recent_gaps > 0 ? 'text-orange-600' : ''}>{pipelineData.recent_gaps ?? 0}</strong></span>
+          </div>
+          {pipelineData.avg_write_latency_ms != null && (
+            <div className="mt-3">
+              <PipelineHealthBar
+                status={
+                  pipelineData.avg_write_latency_ms > 2000 ? 'critical' as PipelineStatus :
+                  pipelineData.avg_write_latency_ms > 500 ? 'warning' as PipelineStatus :
+                  'healthy' as PipelineStatus
+                }
+                writeLatencyMs={pipelineData.avg_write_latency_ms}
+              />
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Disk Warning */}
       {status?.disk.is_critical && (
@@ -501,7 +550,7 @@ export default function Recordings() {
             </div>
           ) : (
             <div className="flex items-center justify-center py-12 text-gray-500">
-              無法載入影片
+              {t.common.error}
             </div>
           )}
 

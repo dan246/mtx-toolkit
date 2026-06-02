@@ -15,6 +15,13 @@ services:
       - "5002:5000"
     environment:
       - FLASK_ENV=development
+      # Token signing secret — REQUIRED. Without it the app falls back to a
+      # public built-in default, making auth tokens forgeable. Set it in .env.
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required — copy .env.example to .env and set a strong value}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3001}
+      - BOOTSTRAP_ADMIN_USERNAME=${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-admin}
       - DATABASE_URL=postgresql://mtx:mtx_password@postgres:5432/mtx_toolkit
       - REDIS_URL=redis://redis:6379/0
       # 連接到主機上現有的 MediaMTX (api_mediamtx_secondary)
@@ -86,6 +93,8 @@ services:
     command: celery -A app.celery_app worker --loglevel=info
     environment:
       - FLASK_ENV=development
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required — copy .env.example to .env and set a strong value}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - DATABASE_URL=postgresql://mtx:mtx_password@postgres:5432/mtx_toolkit
       - REDIS_URL=redis://redis:6379/0
       - MEDIAMTX_API_URL=http://host.docker.internal:9998
@@ -112,6 +121,7 @@ services:
     command: celery -A app.celery_app beat --loglevel=info
     environment:
       - FLASK_ENV=development
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required — copy .env.example to .env and set a strong value}
       - DATABASE_URL=postgresql://mtx:mtx_password@postgres:5432/mtx_toolkit
       - REDIS_URL=redis://redis:6379/0
     volumes:

@@ -65,4 +65,14 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.scan_recordings_task",
         "schedule": 600.0,
     },
+    # Liveness probe every 30 seconds
+    "liveness-probe": {
+        "task": "app.tasks.liveness_probe_all_streams",
+        "schedule": 30.0,
+    },
+    # Recording pipeline check every 60 seconds
+    "recording-pipeline-check": {
+        "task": "app.tasks.check_recording_pipelines",
+        "schedule": 60.0,
+    },
 }
