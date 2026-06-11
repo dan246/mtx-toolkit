@@ -33,8 +33,14 @@ class FleetManager:
         Discovers all paths, updates local database, and removes stale streams.
         """
         try:
-            # Fetch paths from MediaMTX API
-            response = httpx.get(f"{node.api_url}/v3/paths/list", timeout=self.timeout)
+            # Fetch all paths from MediaMTX API. The API paginates (default 100
+            # items/page), so request a large page size to get every path in one
+            # call instead of silently truncating to the first page.
+            response = httpx.get(
+                f"{node.api_url}/v3/paths/list",
+                params={"itemsPerPage": 100000},
+                timeout=self.timeout,
+            )
 
             if response.status_code != 200:
                 return {
@@ -51,6 +57,15 @@ class FleetManager:
             updated = 0
             deleted = 0
 
+            # Preload existing streams once into a dict keyed by path. Querying
+            # per-iteration is both slow and fragile: a create earlier in the loop
+            # triggers an autoflush that can make a later lookup miss, leading to a
+            # duplicate INSERT and a UniqueViolation. The dict is the single source
+            # of truth and absorbs any duplicate names in the API response.
+            existing = {
+                s.path: s for s in Stream.query.filter_by(node_id=node.id).all()
+            }
+
             # Get all current path names from MediaMTX
             current_paths = set()
 
@@ -61,12 +76,10 @@ class FleetManager:
 
                 current_paths.add(path_name)
 
-                # Check if stream exists
-                stream = Stream.query.filter_by(node_id=node.id, path=path_name).first()
-
                 source = path_data.get("source") or {}
                 detected_protocol = self._detect_protocol(path_data)
                 source_protocol = self._detect_source_protocol(path_data)
+                stream = existing.get(path_name)
                 if stream:
                     # Update existing
                     stream.source_url = source.get("id")
@@ -84,6 +97,7 @@ class FleetManager:
                         status=StreamStatus.UNKNOWN.value,
                     )
                     db.session.add(stream)
+                    existing[path_name] = stream
                     created += 1
 
                 synced += 1

@@ -9,7 +9,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
 from app import db
-from app.models import MediaMTXNode, Recording, Stream, StreamEvent
+from app.models import EventType, MediaMTXNode, Recording, Stream, StreamEvent
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -124,6 +124,67 @@ def recent_events():
                 }
                 for e in events
             ]
+        }
+    )
+
+
+@dashboard_bp.route("/events/disconnections", methods=["GET"])
+def disconnection_counts():
+    """Aggregate stream disconnection counts over a time window.
+
+    Query params:
+      hours  - lookback window in hours (default 24)
+      limit  - max number of streams in the breakdown (default 20)
+    """
+    hours = request.args.get("hours", 24, type=int)
+    limit = request.args.get("limit", 20, type=int)
+    since = datetime.utcnow() - timedelta(hours=hours)
+
+    base = StreamEvent.query.filter(
+        StreamEvent.event_type == EventType.DISCONNECTED.value,
+        StreamEvent.created_at >= since,
+    )
+
+    total = base.count()
+
+    rows = (
+        db.session.query(
+            StreamEvent.stream_id,
+            func.count(StreamEvent.id).label("count"),
+            func.max(StreamEvent.created_at).label("last_disconnect"),
+        )
+        .filter(
+            StreamEvent.event_type == EventType.DISCONNECTED.value,
+            StreamEvent.created_at >= since,
+        )
+        .group_by(StreamEvent.stream_id)
+        .order_by(func.count(StreamEvent.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    streams = {s.id: s for s in Stream.query.all()}
+
+    by_stream = [
+        {
+            "stream_id": row.stream_id,
+            "path": streams[row.stream_id].path if row.stream_id in streams else None,
+            "name": streams[row.stream_id].name if row.stream_id in streams else None,
+            "disconnect_count": row.count,
+            "last_disconnect": (
+                row.last_disconnect.isoformat() if row.last_disconnect else None
+            ),
+        }
+        for row in rows
+    ]
+
+    return jsonify(
+        {
+            "period_hours": hours,
+            "total_disconnects": total,
+            "streams_affected": len(by_stream),
+            "by_stream": by_stream,
+            "timestamp": datetime.utcnow().isoformat(),
         }
     )
 

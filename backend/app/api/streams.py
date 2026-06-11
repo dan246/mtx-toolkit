@@ -3,6 +3,7 @@ Streams management API endpoints.
 """
 
 import os
+from datetime import datetime
 from urllib.parse import urlparse
 
 from flask import Blueprint, abort, jsonify, request, send_file
@@ -55,7 +56,22 @@ def list_streams():
                     "status": s.status,
                     "fps": s.fps,
                     "bitrate": s.bitrate,
-                    "latency_ms": s.latency_ms,
+                    "viewers": s.viewers,
+                    "bytes_received": s.bytes_received,
+                    "bytes_sent": s.bytes_sent,
+                    "frames_in_error": s.frames_in_error,
+                    "source_type": s.source_type,
+                    "codec": s.codec,
+                    "width": s.width,
+                    "height": s.height,
+                    "online_since": (
+                        s.online_since.isoformat() if s.online_since else None
+                    ),
+                    "uptime_seconds": (
+                        int((datetime.utcnow() - s.online_since).total_seconds())
+                        if s.online_since
+                        else None
+                    ),
                     "auto_remediate": s.auto_remediate,
                     "recording_enabled": s.recording_enabled,
                     "last_check": s.last_check.isoformat() if s.last_check else None,

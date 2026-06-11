@@ -6,7 +6,7 @@ Uses ffprobe/gstreamer to perform real stream health checks.
 import json
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -105,6 +105,48 @@ class HealthChecker:
                         else ""
                     )
                     stream.source_protocol = self._map_source_protocol(source_type)
+                    stream.source_type = source_type or None
+
+                    # Live metrics straight from the MediaMTX path object — these
+                    # are free here (no ffprobe) and refresh every quick-check.
+                    stream.viewers = len(path_data.get("readers") or [])
+                    new_bytes_in = path_data.get("bytesReceived")
+                    stream.bytes_sent = path_data.get("bytesSent")
+                    stream.frames_in_error = path_data.get("inboundFramesInError")
+                    stream.online_since = self._parse_mtx_time(
+                        path_data.get("onlineTime") or path_data.get("readyTime")
+                    )
+
+                    # Ingest bitrate from the byte counter delta between two
+                    # quick-checks — real per-stream bitrate for free, no ffprobe.
+                    # bytesReceived is cumulative. Only update when there is real
+                    # growth over a long-enough window; otherwise keep the last
+                    # good value instead of overwriting it with 0 (a too-short or
+                    # no-growth interval would otherwise blank out a healthy
+                    # stream's bitrate).
+                    prev_bytes_in = stream.bytes_received
+                    prev_ts = stream.last_check
+                    if (
+                        new_bytes_in is not None
+                        and prev_bytes_in is not None
+                        and prev_ts is not None
+                        and new_bytes_in > prev_bytes_in
+                    ):
+                        dt = (datetime.utcnow() - prev_ts).total_seconds()
+                        if dt >= 2:
+                            stream.bitrate = int((new_bytes_in - prev_bytes_in) * 8 / dt)
+                    stream.bytes_received = new_bytes_in
+
+                    # Codec / resolution from tracks2 (first video track) — also free
+                    tracks2 = path_data.get("tracks2") or []
+                    if tracks2:
+                        t0 = tracks2[0] or {}
+                        stream.codec = t0.get("codec") or stream.codec
+                        props = t0.get("codecProps") or {}
+                        if props.get("width"):
+                            stream.width = props.get("width")
+                        if props.get("height"):
+                            stream.height = props.get("height")
 
                     if is_ready:
                         # Stream is ready and playable
@@ -210,6 +252,10 @@ class HealthChecker:
         Probe a stream URL using ffprobe.
         Returns detailed stream information and health status.
         """
+        # NOTE: we intentionally do NOT report a latency_ms here. True ingest
+        # latency is not obtainable from this setup (MediaMTX relays without
+        # camera RTCP Sender Report / NTP absolute timestamps), and a probe
+        # round-trip proxy is misleading — broken streams "respond" fastest.
         try:
             result = self._run_ffprobe(url)
             return self._analyze_probe_result(result, url, protocol)
@@ -233,9 +279,9 @@ class HealthChecker:
             "-show_streams",
             "-show_error",
             "-analyzeduration",
-            "5000000",  # 5 seconds
+            "2000000",  # 2 seconds — enough to identify fps/codec for live H264
             "-probesize",
-            "5000000",
+            "1000000",
         ]
         # Use TCP transport for RTSP to avoid UDP issues
         if url.startswith("rtsp://"):
@@ -346,6 +392,10 @@ class HealthChecker:
                 else None
             )
 
+            # NOTE: bitrate is derived cheaply from MediaMTX byte-counter deltas
+            # during quick-check (see quick_check_node), so we deliberately do
+            # NOT run a slow packet-counting ffprobe pass here.
+
             # Check FPS
             if fps and fps < self.MIN_FPS:
                 issues.append(f"Low FPS: {fps:.1f}")
@@ -376,6 +426,45 @@ class HealthChecker:
         result["status"] = status.value
 
         return result
+
+    def _parse_mtx_time(self, ts: Optional[str]) -> Optional[datetime]:
+        """Parse a MediaMTX RFC3339 timestamp to a naive UTC datetime.
+
+        MediaMTX emits nanosecond precision with a trailing 'Z' (e.g.
+        '2026-06-11T09:03:21.79400233Z'), which datetime.fromisoformat cannot
+        handle directly, so normalise to microseconds first.
+        """
+        if not ts:
+            return None
+        # MediaMTX returns Go's zero time ("0001-01-01T00:00:00Z") for streams
+        # that are not actually online yet (e.g. degraded). Treat it as "no time".
+        if ts.startswith("0001-01-01"):
+            return None
+        try:
+            ts = ts.replace("Z", "+00:00")
+            if "." in ts:
+                head, frac = ts.split(".", 1)
+                # frac may carry an offset after the digits, e.g. '79400233+00:00'
+                digits = ""
+                rest = ""
+                for i, ch in enumerate(frac):
+                    if ch.isdigit():
+                        digits += ch
+                    else:
+                        rest = frac[i:]
+                        break
+                ts = f"{head}.{digits[:6]}{rest}"
+            dt = datetime.fromisoformat(ts)
+            # Normalise to naive UTC to match the rest of the codebase
+            # (which uses datetime.utcnow()).
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            # Reject obviously-invalid timestamps (Go zero time, epoch garbage).
+            if dt.year < 2000:
+                return None
+            return dt
+        except Exception:
+            return None
 
     def _parse_fps(self, fps_str: str) -> Optional[float]:
         """Parse FPS from ffprobe format (e.g., '30/1' or '29.97')."""
@@ -416,9 +505,12 @@ class HealthChecker:
         # Update stream status
         old_status = stream.status
         stream.status = result.get("status", StreamStatus.UNKNOWN.value)
-        stream.fps = result.get("fps")
-        stream.bitrate = result.get("bitrate")
-        stream.latency_ms = result.get("latency_ms")
+        if result.get("fps") is not None:
+            stream.fps = result.get("fps")
+        # bitrate is maintained from byte-counter deltas in quick_check; only let
+        # ffprobe override it when ffprobe actually reported a value.
+        if result.get("bitrate") is not None:
+            stream.bitrate = result.get("bitrate")
         stream.last_check = datetime.utcnow()
 
         # Create event if status changed

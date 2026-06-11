@@ -25,6 +25,17 @@ export interface Stream {
   bitrate: number | null
   latency_ms: number | null
   keyframe_interval: number | null
+  // Live metrics from MediaMTX path API
+  viewers?: number | null
+  bytes_received?: number | null
+  bytes_sent?: number | null
+  frames_in_error?: number | null
+  source_type?: string | null
+  codec?: string | null
+  width?: number | null
+  height?: number | null
+  online_since?: string | null
+  uptime_seconds?: number | null
   auto_remediate: boolean
   remediation_count: number
   last_remediation: string | null

@@ -21,6 +21,9 @@ PUBLIC_ENDPOINTS = {
     "auth.logout",
     "health.get_health_status",
     "health.submit_playback_report",
+    # Thumbnails load via <img src> tags, which cannot send the bearer token
+    # header — serve them without auth (they are just preview frames).
+    "streams.get_stream_thumbnail",
 }
 
 

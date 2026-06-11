@@ -165,6 +165,17 @@ class Stream(db.Model):
     latency_ms = db.Column(db.Integer)
     keyframe_interval = db.Column(db.Float)
 
+    # Live metrics from MediaMTX path API (populated every quick-check, no ffprobe)
+    viewers = db.Column(db.Integer, default=0)  # len(readers) — 觀眾數
+    bytes_received = db.Column(db.BigInteger)  # inbound bytes from source — 頻寬(入)
+    bytes_sent = db.Column(db.BigInteger)  # outbound bytes to readers — 頻寬(出)
+    frames_in_error = db.Column(db.BigInteger)  # inboundFramesInError — 錯誤影格(近似丟包)
+    online_since = db.Column(db.DateTime)  # MediaMTX onlineTime — 連線時長起點
+    source_type = db.Column(db.String(50))  # source.type e.g. rtspSource
+    codec = db.Column(db.String(50))  # video codec from tracks2
+    width = db.Column(db.Integer)
+    height = db.Column(db.Integer)
+
     # Auto-remediation
     auto_remediate = db.Column(db.Boolean, default=True)
     remediation_count = db.Column(db.Integer, default=0)

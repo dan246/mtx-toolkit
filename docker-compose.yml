@@ -24,15 +24,15 @@ services:
       - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-admin}
       - DATABASE_URL=postgresql://mtx:mtx_password@postgres:5432/mtx_toolkit
       - REDIS_URL=redis://redis:6379/0
-      # 連接到主機上現有的 MediaMTX (api_mediamtx_secondary)
-      - MEDIAMTX_API_URL=http://host.docker.internal:9998
-      - MEDIAMTX_RTSP_URL=rtsp://host.docker.internal:8555
+      # 連接到 192.168.53.16 上的 MediaMTX (可用 .env 覆寫)
+      - MEDIAMTX_API_URL=${MEDIAMTX_API_URL:-http://192.168.53.16:9998}
+      - MEDIAMTX_RTSP_URL=${MEDIAMTX_RTSP_URL:-rtsp://192.168.53.16:8555}
       - RECORDING_BASE_PATH=/recordings
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
-      - ../MultiCamAPI/recordings:/recordings  # 共用現有的 recordings 目錄
+      - ./recordings:/recordings  # recordings 目錄
     depends_on:
       - postgres
       - redis
@@ -97,14 +97,14 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - DATABASE_URL=postgresql://mtx:mtx_password@postgres:5432/mtx_toolkit
       - REDIS_URL=redis://redis:6379/0
-      - MEDIAMTX_API_URL=http://host.docker.internal:9998
-      - MEDIAMTX_RTSP_URL=rtsp://host.docker.internal:8555
+      - MEDIAMTX_API_URL=${MEDIAMTX_API_URL:-http://192.168.53.16:9998}
+      - MEDIAMTX_RTSP_URL=${MEDIAMTX_RTSP_URL:-rtsp://192.168.53.16:8555}
       - RECORDING_BASE_PATH=/recordings
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
-      - ../MultiCamAPI/recordings:/recordings
+      - ./recordings:/recordings
     depends_on:
       - postgres
       - redis

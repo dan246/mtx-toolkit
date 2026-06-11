@@ -27,6 +27,29 @@ import { useLanguage } from '../i18n/LanguageContext'
 import { useToast } from '../contexts/ToastContext'
 import type { Stream, StreamStatus, MediaMTXNode, LivenessClassification } from '../types'
 
+function formatBytes(bytes?: number | null): string {
+  if (bytes == null) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let i = 0
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024
+    i += 1
+  }
+  return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function formatUptime(seconds?: number | null): string {
+  if (seconds == null) return '-'
+  if (seconds < 60) return `${seconds}s`
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h`
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
+
 interface StreamFormData {
   path: string
   name: string
@@ -418,7 +441,10 @@ export default function Streams() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.viewers}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.fps}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.bitrate}</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.latency}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.uptime}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.bandwidth}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.resolution}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.errors}</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t.streams.lastCheck}</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">{t.streams.actions}</th>
               </tr>
@@ -461,10 +487,33 @@ export default function Streams() {
                     {stream.fps ? `${stream.fps.toFixed(1)} fps` : '-'}
                   </td>
                   <td className="px-6 py-4 text-gray-600">
-                    {stream.bitrate ? `${(stream.bitrate / 1000).toFixed(0)} kbps` : '-'}
+                    {stream.bitrate != null ? `${(stream.bitrate / 1000).toFixed(0)} kbps` : '-'}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                    {formatUptime(stream.uptime_seconds)}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                    {stream.bytes_sent != null || stream.bytes_received != null ? (
+                      <span title={`↓ ${formatBytes(stream.bytes_received)} / ↑ ${formatBytes(stream.bytes_sent)}`}>
+                        ↑ {formatBytes(stream.bytes_sent)}
+                      </span>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                    {stream.width && stream.height
+                      ? `${stream.width}×${stream.height}${stream.codec ? ` ${stream.codec}` : ''}`
+                      : '-'}
                   </td>
                   <td className="px-6 py-4 text-gray-600">
-                    {stream.latency_ms ? `${stream.latency_ms} ms` : '-'}
+                    {stream.frames_in_error != null ? (
+                      <span className={stream.frames_in_error > 0 ? 'text-red-600 font-medium' : ''}>
+                        {stream.frames_in_error}
+                      </span>
+                    ) : (
+                      '-'
+                    )}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {stream.last_check
